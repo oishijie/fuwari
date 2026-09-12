@@ -1,0 +1,51 @@
+---
+
+import { getEntry, render } from "astro:content";
+import Comments from "../components/misc/Comments.astro";
+import Markdown from "@components/misc/Markdown.astro";
+import I18nKey from "../i18n/i18nKey";
+import { i18n } from "../i18n/translation";
+import MainGridLayout from "../layouts/MainGridLayout.astro";
+
+const aboutPost = await getEntry("spec", "about");
+
+if (!aboutPost) {
+	throw new Error("About page content not found");
+}
+
+const { Content } = await render(aboutPost);
+---
+<MainGridLayout title={i18n(I18nKey.about)} description={i18n(I18nKey.about)}>
+    <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative min-h-32">
+        <div class="card-base z-10 px-9 py-6 relative w-full ">
+            <Markdown class="about-body mt-2">
+                <Content />
+            </Markdown>
+            <Comments />
+        </div>
+    </div>
+</MainGridLayout>
+
+<style is:global>
+    /* 关于页：Events 时间线的日期胶囊 —— 列表项首元素是 inline code 即视为日期 */
+    .about-body ul > li > code:first-child {
+        display: inline-block;
+        margin-right: 0.5rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 0.375rem;
+        font-size: 0.8125em;
+        font-variant-numeric: tabular-nums;
+        background: rgb(0 0 0 / 0.06);
+        color: rgb(0 0 0 / 0.75);
+        vertical-align: baseline;
+    }
+    :root.dark .about-body ul > li > code:first-child {
+        background: rgb(255 255 255 / 0.1);
+        color: rgb(255 255 255 / 0.8);
+    }
+
+    /* 关于页：类目表格首列不换行溢出 */
+    .about-body table td:first-child {
+        white-space: nowrap;
+    }
+</style>

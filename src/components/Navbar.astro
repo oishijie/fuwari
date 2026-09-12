@@ -1,0 +1,204 @@
+---
+import { Icon } from "astro-icon/components";
+import { navBarConfig, siteConfig } from "../config";
+import { LinkPresets } from "../constants/link-presets";
+import { LinkPreset, type NavBarLink } from "../types/config";
+import { getHiddenPosts } from "../utils/content-utils";
+import { url } from "../utils/url-utils";
+import LightDarkSwitch from "./LightDarkSwitch.svelte";
+import Search from "./Search.svelte";
+import DisplaySettings from "./widget/DisplaySettings.svelte";
+import NavMenuPanel from "./widget/NavMenuPanel.astro";
+
+const className = Astro.props.class;
+
+// 构建时取最新一篇 hidden（Now）文章的发布时间：
+// 客户端 JS 用它判断「48h 内 Now 有更新」→ 导航 Now 旁显示 * 星标
+const nowPosts = await getHiddenPosts();
+const lastNowUpdate =
+	nowPosts.length > 0
+		? Math.max(...nowPosts.map((p) => p.published.getTime()))
+		: 0;
+
+let links: NavBarLink[] = navBarConfig.links.map(
+	(item: NavBarLink | LinkPreset): NavBarLink => {
+		if (typeof item === "number") {
+			return LinkPresets[item];
+		}
+		return item;
+	},
+);
+---
+<div id="navbar" class="z-50 onload-animation">
+    <div class="absolute h-8 left-0 right-0 -top-8 bg-[var(--card-bg)] transition"></div> <!-- used for onload animation -->
+    <div class:list={[
+        className,
+        "card-base !overflow-visible max-w-[var(--page-width)] h-[4.5rem] !rounded-t-none mx-auto flex items-center justify-between px-4"]}>
+        <a href={url('/')} class="btn-plain scale-animation rounded-lg h-[3.25rem] px-5 font-bold active:scale-95">
+            <div class="flex flex-row text-[var(--primary)] items-center text-md">
+                <Icon name="material-symbols:home-outline-rounded" class="text-[1.75rem] mb-1 mr-2" />
+                {siteConfig.title}
+            </div>
+        </a>
+        <div class="hidden md:flex">
+            {links.map((l) => {
+            
+{/* return <a aria-label={l.name} href={l.external ? l.url : url(l.url)} target={l.external ? "_blank" : null}
+          class="btn-plain scale-animation rounded-lg h-11 font-bold px-5 active:scale-95"
+>
+    <div class="flex items-center">
+        {l.name}
+        {l.external && <Icon name="fa6-solid:arrow-up-right-from-square" class="text-[0.875rem] transition -translate-y-[1px] ml-1 text-black/[0.2] dark:text-white/[0.2]"></Icon>}
+    </div>
+</a>; 
+*/}
+
+                if (l.children && l.children.length > 0) {
+                    // 有子菜单的情况
+                    return <div class="relative group">
+                        <button class="btn-plain scale-animation rounded-lg h-11 font-bold px-5 active:scale-95 flex items-center">
+                            {l.name}
+                            <Icon name="material-symbols:keyboard-arrow-down-rounded" class="text-[1.25rem] ml-1 transition-transform group-hover:rotate-180"></Icon>
+                        </button>
+                        <div class="absolute top-full left-0 mt-2 min-w-max bg-[var(--card-bg)] border border-[var(--line-divider)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 whitespace-nowrap">
+                            {l.children.map((child) => (
+                                 <a href={child.external ? child.url : url(child.url)} target={child.external ? "_blank" : null}
+                                    class="btn-plain scale-animation block px-4 py-3 text-sm font-bold hover:bg-[var(--btn-plain-bg-hover)] active:bg-[var(--btn-plain-bg-active)] first:rounded-t-lg last:rounded-b-lg transition-all duration-200 active:scale-95 mx-1 my-0.5 rounded-lg">
+                                     <div class="flex items-center justify-between">
+                                         {child.name}
+                                         {child.external && <Icon name="fa6-solid:arrow-up-right-from-square" class="text-[0.75rem] text-black/[0.2] dark:text-white/[0.2]"></Icon>}
+                                     </div>
+                                 </a>
+                             ))}
+                        </div>
+                    </div>;
+                } else {
+                    // 没有子菜单的情况
+                    return <a aria-label={l.name} href={l.external ? l.url : url(l.url)} target={l.external ? "_blank" : null}
+                              class="btn-plain scale-animation rounded-lg h-11 font-bold px-5 active:scale-95"
+                              data-now-updated={l.url === '/now/' ? lastNowUpdate : undefined}
+                    >
+                        <div class="flex items-center">
+                            {l.name}
+                            {l.url === '/now/' && <span class="now-star hidden ml-0.5 text-[var(--primary)] leading-none">*</span>}
+                            {l.external && <Icon name="fa6-solid:arrow-up-right-from-square" class="text-[0.875rem] transition -translate-y-[1px] ml-1 text-black/[0.2] dark:text-white/[0.2]"></Icon>}
+                        </div>
+                    </a>;
+                }
+
+
+            })}
+        </div>
+        <div class="flex">
+            <!--<SearchPanel client:load>-->
+            <Search client:only="svelte"></Search>
+            {!siteConfig.themeColor.fixed && (
+                    <button aria-label="Display Settings" class="btn-plain scale-animation rounded-lg h-11 w-11 active:scale-90" id="display-settings-switch">
+                        <Icon name="material-symbols:palette-outline" class="text-[1.25rem]"></Icon>
+                    </button>
+            )}
+            <LightDarkSwitch client:only="svelte"></LightDarkSwitch>
+            <button aria-label="Menu" name="Nav Menu" class="btn-plain scale-animation rounded-lg w-11 h-11 active:scale-90 md:!hidden" id="nav-menu-switch">
+                <Icon name="material-symbols:menu-rounded" class="text-[1.25rem]"></Icon>
+            </button>
+        </div>
+        <NavMenuPanel links={links}></NavMenuPanel>
+        <DisplaySettings client:only="svelte"></DisplaySettings>
+    </div>
+</div>
+
+<script>
+function switchTheme() {
+    if (localStorage.theme === 'dark') {
+        document.documentElement.classList.remove('dark');
+        localStorage.theme = 'light';
+    } else {
+        document.documentElement.classList.add('dark');
+        localStorage.theme = 'dark';
+    }
+}
+
+function loadButtonScript() {
+    let switchBtn = document.getElementById("scheme-switch");
+    if (switchBtn) {
+        switchBtn.onclick = function () {
+            switchTheme()
+        };
+    }
+
+    let settingBtn = document.getElementById("display-settings-switch");
+    if (settingBtn) {
+        settingBtn.onclick = function () {
+            let settingPanel = document.getElementById("display-setting");
+            if (settingPanel) {
+                settingPanel.classList.toggle("float-panel-closed");
+            }
+        };
+    }
+
+    let menuBtn = document.getElementById("nav-menu-switch");
+    if (menuBtn) {
+        menuBtn.onclick = function () {
+            let menuPanel = document.getElementById("nav-menu-panel");
+            if (menuPanel) {
+                menuPanel.classList.toggle("float-panel-closed");
+            }
+        };
+    }
+}
+
+loadButtonScript();
+
+// Now 页 48h 更新星标：构建时注入最新 hidden 文章时间戳（data-now-updated），
+// 访客打开页面时与当前时间对比，48h 内显示 *，超时自动熄灭。
+// 监听 astro:page-load / swup:page:view 保证 Swup 无刷新切页后星标状态正确恢复。
+function updateNowStar() {
+    const link = document.querySelector("a[data-now-updated]");
+    if (!link) return;
+    const ts = Number(link.getAttribute("data-now-updated") || 0);
+    const star = link.querySelector(".now-star");
+    if (!star) return;
+    const fresh = ts > 0 && Date.now() - ts < 48 * 60 * 60 * 1000;
+    star.classList.toggle("hidden", !fresh);
+}
+
+updateNowStar();
+document.addEventListener("astro:page-load", updateNowStar);
+document.addEventListener("swup:page:view", updateNowStar);
+</script>
+
+{import.meta.env.PROD && <script is:inline define:vars={{scriptUrl: url('/pagefind/pagefind.js')}}>
+async function loadPagefind() {
+    try {
+        const response = await fetch(scriptUrl, { method: 'HEAD' });
+        if (!response.ok) {
+            throw new Error(`Pagefind script not found: ${response.status}`);
+        }
+
+        const pagefind = await import(scriptUrl);
+
+        await pagefind.options({
+            excerptLength: 20
+        });
+
+        window.pagefind = pagefind;
+
+        document.dispatchEvent(new CustomEvent('pagefindready'));
+        console.log('Pagefind loaded and initialized successfully, event dispatched.');
+    } catch (error) {
+        console.error('Failed to load Pagefind:', error);
+        window.pagefind = {
+            search: () => Promise.resolve({ results: [] }),
+            options: () => Promise.resolve(),
+        };
+        document.dispatchEvent(new CustomEvent('pagefindloaderror'));
+        console.log('Pagefind load error, event dispatched.');
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadPagefind);
+} else {
+    loadPagefind();
+}
+</script>}

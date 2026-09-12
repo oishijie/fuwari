@@ -1,0 +1,588 @@
+---
+import { commentConfig } from "@/config";
+
+interface Props {
+	enable?: boolean;
+	apiBase?: string;
+}
+
+const { enable = commentConfig.enable, apiBase = commentConfig.apiBase } = Astro.props;
+---
+
+{enable && (
+	<section id="post-comment" class="cmt-wrapper">
+		<h3 class="cmt-title">评论</h3>
+
+		<div id="cmt-list" class="cmt-list">
+			<div class="cmt-empty">加载中…</div>
+		</div>
+
+		<form id="cmt-form" class="cmt-form" autocomplete="off" novalidate>
+			{/* 引用回复提示条：点某条评论的「回复」后显示 */}
+			<div id="cmt-reply-bar" class="cmt-reply-bar" hidden>
+				<span class="cmt-reply-label">正在回复 <b id="cmt-reply-name"></b></span>
+				<button id="cmt-reply-cancel" class="cmt-reply-cancel" type="button" aria-label="取消回复">✕</button>
+			</div>
+			<div class="cmt-row">
+				<input id="cmt-author" class="cmt-input" type="text" maxlength="40" placeholder="昵称 *" required />
+				<input id="cmt-email" class="cmt-input" type="email" maxlength="120" placeholder="邮箱（可选，不公开）" />
+				<input id="cmt-website" class="cmt-input" type="url" maxlength="200" placeholder="网址（可选）" />
+			</div>
+
+			<textarea id="cmt-content" class="cmt-input cmt-textarea" maxlength="2000" rows="4" placeholder="说点什么…（支持换行，最多 2000 字）" required></textarea>
+
+			{/* 蜜罐字段：对真实访客不可见，专喂自动脚本 */}
+			<input
+				id="cmt-trap"
+				class="cmt-trap"
+				type="text"
+				name="trap"
+				tabindex="-1"
+				autocomplete="off"
+				aria-hidden="true"
+			/>
+
+			<div class="cmt-actions">
+				<span id="cmt-status" class="cmt-status"></span>
+				<button id="cmt-submit" class="cmt-submit" type="submit">发表评论</button>
+			</div>
+		</form>
+
+		<script define:vars={{ apiBase }}>
+			const API = String(apiBase || "").replace(/\/+$/, "");
+			const $ = (id) => document.getElementById(id);
+
+			function fmtTime(iso) {
+				const d = new Date(iso);
+				if (Number.isNaN(d.getTime())) return "";
+				const p = (n) => String(n).padStart(2, "0");
+				return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+			}
+
+			function setStatus(text, kind) {
+				const el = $("cmt-status");
+				if (!el) return;
+				el.textContent = text || "";
+				el.dataset.kind = kind || "";
+			}
+
+			// —— 引用回复状态 ——
+			let replyTarget = null; // { id, author }
+
+			function setReplyTarget(id, author) {
+				replyTarget = { id, author };
+				const bar = $("cmt-reply-bar");
+				const nameEl = $("cmt-reply-name");
+				if (bar) bar.hidden = false;
+				if (nameEl) nameEl.textContent = author;
+				const form = $("cmt-form");
+				if (form && form.scrollIntoView) form.scrollIntoView({ behavior: "smooth", block: "center" });
+				const content = $("cmt-content");
+				if (content) content.focus();
+			}
+
+			function clearReplyTarget() {
+				replyTarget = null;
+				const bar = $("cmt-reply-bar");
+				if (bar) bar.hidden = true;
+			}
+
+			// 把扁平列表组装成回复树；父节点缺失时按顶层处理，保证不丢评论
+			function buildTree(list) {
+				const byId = new Map();
+				for (const c of list) byId.set(c.id, { ...c, children: [] });
+				const roots = [];
+				for (const c of list) {
+					const node = byId.get(c.id);
+					const parent = c.parentId != null ? byId.get(c.parentId) : null;
+					if (parent) {
+						node.replyTo = parent.author;
+						parent.children.push(node);
+					} else {
+						roots.push(node);
+					}
+				}
+				return roots;
+			}
+
+			// 缩进层级上限，超过后不再累加缩进，避免深层回复把正文挤成一条线
+			const MAX_INDENT_DEPTH = 3;
+
+			// 全部用 DOM API 构建，正文走 textContent —— 从根上杜绝 XSS
+			function renderNode(node, depth) {
+				const item = document.createElement("div");
+				item.className = "cmt-item";
+				item.id = `cmt-item-${node.id}`;
+
+				const head = document.createElement("div");
+				head.className = "cmt-item-head";
+
+				const name = document.createElement("span");
+				name.className = "cmt-author";
+				if (node.website) {
+					const a = document.createElement("a");
+					a.href = node.website;
+					a.target = "_blank";
+					a.rel = "noopener noreferrer nofollow";
+					a.textContent = node.author;
+					name.appendChild(a);
+				} else {
+					name.textContent = node.author;
+				}
+
+				const time = document.createElement("time");
+				time.className = "cmt-time";
+				time.dateTime = node.createdAt;
+				time.textContent = fmtTime(node.createdAt);
+
+				head.appendChild(name);
+				head.appendChild(time);
+				item.appendChild(head);
+
+				if (node.replyTo) {
+					const quote = document.createElement("div");
+					quote.className = "cmt-reply-to";
+					quote.textContent = `回复 @${node.replyTo}`;
+					item.appendChild(quote);
+				}
+
+				const body = document.createElement("div");
+				body.className = "cmt-content";
+				body.textContent = node.content;
+				item.appendChild(body);
+
+				const actions = document.createElement("div");
+				actions.className = "cmt-item-actions";
+				const replyBtn = document.createElement("button");
+				replyBtn.type = "button";
+				replyBtn.className = "cmt-reply-btn";
+				replyBtn.textContent = "回复";
+				replyBtn.addEventListener("click", () => setReplyTarget(node.id, node.author));
+				actions.appendChild(replyBtn);
+				item.appendChild(actions);
+
+				if (node.children.length) {
+					const kids = document.createElement("div");
+					kids.className = "cmt-children";
+					if (depth + 1 >= MAX_INDENT_DEPTH) kids.classList.add("cmt-children-flat");
+					for (const child of node.children) kids.appendChild(renderNode(child, depth + 1));
+					item.appendChild(kids);
+				}
+
+				return item;
+			}
+
+			function renderComments(list) {
+				const box = $("cmt-list");
+				if (!box) return;
+				box.textContent = "";
+
+				if (!list || list.length === 0) {
+					const empty = document.createElement("div");
+					empty.className = "cmt-empty";
+					empty.textContent = "还没有评论，来抢沙发～";
+					box.appendChild(empty);
+					return;
+				}
+
+				for (const root of buildTree(list)) box.appendChild(renderNode(root, 0));
+			}
+
+			let loadingSlug = null;
+
+			async function loadComments(force) {
+				const box = $("cmt-list");
+				if (!box || !API) return;
+
+				const slug = location.pathname;
+				if (!force && loadingSlug === slug) return;
+				loadingSlug = slug;
+
+				box.textContent = "";
+				const hint = document.createElement("div");
+				hint.className = "cmt-empty";
+				hint.textContent = "加载中…";
+				box.appendChild(hint);
+
+				try {
+					const res = await fetch(`${API}/api/comments?slug=${encodeURIComponent(slug)}`);
+					if (!res.ok) throw new Error(`HTTP ${res.status}`);
+					const data = await res.json();
+					renderComments(data.comments || []);
+				} catch (err) {
+					loadingSlug = null;
+					box.textContent = "";
+					const fail = document.createElement("div");
+					fail.className = "cmt-empty";
+					fail.textContent = "评论加载失败，请稍后重试";
+					box.appendChild(fail);
+				}
+			}
+
+			async function onSubmit(e) {
+				e.preventDefault();
+				if (!API) {
+					setStatus("未配置评论服务地址", "error");
+					return;
+				}
+
+				const btn = $("cmt-submit");
+				const payload = {
+					slug: location.pathname,
+					author: $("cmt-author")?.value ?? "",
+					email: $("cmt-email")?.value ?? "",
+					website: $("cmt-website")?.value ?? "",
+					content: $("cmt-content")?.value ?? "",
+					trap: $("cmt-trap")?.value ?? "",
+					parentId: replyTarget ? replyTarget.id : null,
+				};
+
+				if (!payload.author.trim()) {
+					setStatus("请填写昵称", "error");
+					return;
+				}
+				if (payload.content.trim().length < 2) {
+					setStatus("评论内容太短", "error");
+					return;
+				}
+
+				if (btn) {
+					btn.disabled = true;
+					btn.textContent = "提交中…";
+				}
+				setStatus("", "");
+
+				try {
+					const res = await fetch(`${API}/api/comments`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload),
+					});
+					const data = await res.json().catch(() => ({}));
+
+					if (!res.ok) {
+						setStatus(data.error || `提交失败（HTTP ${res.status}）`, "error");
+						return;
+					}
+
+					if (data.pending) {
+						setStatus("已提交，等待站长审核后显示", "ok");
+					} else {
+						const contentEl = $("cmt-content");
+						if (contentEl) contentEl.value = "";
+						setStatus("发表成功", "ok");
+					}
+					clearReplyTarget();
+
+					loadingSlug = null;
+					await loadComments(true);
+				} catch (err) {
+					setStatus("网络异常，提交失败", "error");
+				} finally {
+					if (btn) {
+						btn.disabled = false;
+						btn.textContent = "发表评论";
+					}
+				}
+			}
+
+			function init() {
+				const section = $("post-comment");
+				// Swup 每次换页会插入新的 section，用 dataset 标记避免同一节点重复绑定
+				if (!section || section.dataset.cmtInit === "1") return;
+				section.dataset.cmtInit = "1";
+
+				const form = $("cmt-form");
+				if (form) form.addEventListener("submit", onSubmit);
+
+				const cancel = $("cmt-reply-cancel");
+				if (cancel) cancel.addEventListener("click", clearReplyTarget);
+
+				clearReplyTarget();
+				loadComments(true);
+			}
+
+			document.addEventListener("astro:page-load", init);
+			if (document.readyState === "loading") {
+				document.addEventListener("DOMContentLoaded", init);
+			} else {
+				init();
+			}
+		</script>
+	</section>
+)}
+
+<style is:global>
+	.cmt-wrapper {
+		margin-top: 1.5rem;
+		padding-top: 1.25rem;
+		border-top: 1px dashed var(--line-divider);
+	}
+
+	.cmt-title {
+		font-size: 1.125rem;
+		font-weight: 700;
+		margin-bottom: 0.75rem;
+		color: rgb(0 0 0 / 0.9);
+	}
+
+	:root.dark .cmt-title {
+		color: rgb(255 255 255 / 0.9);
+	}
+
+	.cmt-list {
+		margin-bottom: 1.25rem;
+	}
+
+	.cmt-empty {
+		font-size: 0.875rem;
+		padding: 0.75rem 0;
+		color: rgb(0 0 0 / 0.55);
+	}
+
+	:root.dark .cmt-empty {
+		color: rgb(255 255 255 / 0.6);
+	}
+
+	.cmt-item {
+		padding: 0.875rem 0;
+		border-top: 1px solid var(--line-divider);
+	}
+
+	.cmt-item:first-child {
+		border-top: none;
+		padding-top: 0;
+	}
+
+	.cmt-item-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.375rem;
+	}
+
+	.cmt-author {
+		font-weight: 600;
+		font-size: 0.9375rem;
+		color: var(--primary);
+	}
+
+	.cmt-author a:hover {
+		text-decoration: underline;
+	}
+
+	.cmt-time {
+		font-size: 0.75rem;
+		white-space: nowrap;
+		color: rgb(0 0 0 / 0.5);
+	}
+
+	:root.dark .cmt-time {
+		color: rgb(255 255 255 / 0.5);
+	}
+
+	.cmt-content {
+		font-size: 0.9375rem;
+		line-height: 1.7;
+		white-space: pre-wrap;
+		word-break: break-word;
+		color: rgb(0 0 0 / 0.9);
+	}
+
+	:root.dark .cmt-content {
+		color: rgb(255 255 255 / 0.9);
+	}
+
+	.cmt-reply-to {
+		font-size: 0.8125rem;
+		margin-bottom: 0.25rem;
+		color: rgb(0 0 0 / 0.6);
+	}
+
+	:root.dark .cmt-reply-to {
+		color: rgb(255 255 255 / 0.6);
+	}
+
+	.cmt-item-actions {
+		margin-top: 0.375rem;
+	}
+
+	.cmt-reply-btn {
+		font-size: 0.8125rem;
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--primary);
+		opacity: 0.75;
+		cursor: pointer;
+		font-family: inherit;
+	}
+
+	.cmt-reply-btn:hover {
+		opacity: 1;
+		text-decoration: underline;
+	}
+
+	/* 回复子树：左侧竖线 + 缩进 */
+	.cmt-children {
+		margin-left: 0.75rem;
+		padding-left: 0.875rem;
+		border-left: 2px solid var(--line-divider);
+	}
+
+	/* 超过缩进上限后不再累加缩进 */
+	.cmt-children-flat {
+		margin-left: 0;
+		padding-left: 0.5rem;
+	}
+
+	.cmt-reply-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		font-size: 0.8125rem;
+		padding: 0.375rem 0.625rem;
+		border-radius: 0.375rem;
+		background: var(--btn-regular-bg, rgba(127, 127, 127, 0.12));
+		color: var(--primary);
+	}
+
+	/* hidden 属性会被上面的 display:flex 覆盖，需显式关掉 */
+	.cmt-reply-bar[hidden] {
+		display: none;
+	}
+
+	.cmt-reply-label b {
+		font-weight: 600;
+	}
+
+	.cmt-reply-cancel {
+		border: none;
+		background: none;
+		cursor: pointer;
+		color: inherit;
+		opacity: 0.7;
+		font-size: 0.875rem;
+		line-height: 1;
+		padding: 0.125rem 0.25rem;
+	}
+
+	.cmt-reply-cancel:hover {
+		opacity: 1;
+	}
+
+	.cmt-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+	}
+
+	.cmt-row {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.625rem;
+	}
+
+	.cmt-input {
+		width: 100%;
+		font-size: 0.875rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: 0.5rem;
+		border: 1px solid var(--line-divider);
+		background: var(--card-bg);
+		color: rgb(0 0 0 / 0.9);
+		transition: border-color 0.2s;
+		font-family: inherit;
+	}
+
+	.cmt-input:focus {
+		outline: none;
+		border-color: var(--primary);
+	}
+
+	.cmt-input::placeholder {
+		color: rgb(0 0 0 / 0.4);
+	}
+
+	:root.dark .cmt-input {
+		color: rgb(255 255 255 / 0.9);
+	}
+
+	:root.dark .cmt-input::placeholder {
+		color: rgb(255 255 255 / 0.4);
+	}
+
+	.cmt-textarea {
+		resize: vertical;
+		min-height: 5rem;
+		line-height: 1.6;
+	}
+
+	/* 蜜罐：移出视口且不可聚焦，正常访客永远碰不到 */
+	.cmt-trap {
+		position: absolute;
+		left: -9999px;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.cmt-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.75rem;
+	}
+
+	.cmt-status {
+		font-size: 0.8125rem;
+		margin-right: auto;
+		color: rgb(0 0 0 / 0.9);
+	}
+
+	:where(:root.dark) .cmt-status {
+		color: rgb(255 255 255 / 0.9);
+	}
+
+	.cmt-status[data-kind="ok"] {
+		color: var(--primary);
+	}
+
+	.cmt-status[data-kind="error"] {
+		color: #e5484d;
+	}
+
+	.cmt-submit {
+		font-size: 0.875rem;
+		font-weight: 600;
+		padding: 0.5rem 1.25rem;
+		border-radius: 0.5rem;
+		border: none;
+		cursor: pointer;
+		color: #fff;
+		background: var(--primary);
+		transition: opacity 0.2s, transform 0.1s;
+	}
+
+	.cmt-submit:hover:not(:disabled) {
+		opacity: 0.88;
+	}
+
+	.cmt-submit:active:not(:disabled) {
+		transform: scale(0.97);
+	}
+
+	.cmt-submit:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	@media (max-width: 640px) {
+		.cmt-row {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

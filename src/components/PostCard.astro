@@ -1,0 +1,221 @@
+---
+import type { CollectionEntry } from "astro:content";
+import path from "node:path";
+import { Icon } from "astro-icon/components";
+import I18nKey from "../i18n/i18nKey";
+import { i18n } from "../i18n/translation";
+import { getDir } from "../utils/url-utils";
+import ImageWrapper from "./misc/ImageWrapper.astro";
+import PostMetadata from "./PostMeta.astro";
+
+interface Props {
+	class?: string;
+	entry: CollectionEntry<"posts">;
+	title: string;
+	url: string;
+	published: Date;
+	updated?: Date;
+	tags: string[];
+	category: string | null;
+	image: string;
+	description: string;
+	draft: boolean;
+	style: string;
+}
+const {
+	entry,
+	title,
+	url,
+	published,
+	updated,
+	tags,
+	category,
+	image,
+	description,
+	style,
+} = Astro.props;
+const className = Astro.props.class;
+
+const hasCover = image !== undefined && image !== null && image !== "";
+
+const { remarkPluginFrontmatter } = await entry.render();
+---
+<div class:list={["card-base flex flex-col-reverse md:flex-col w-full rounded-[var(--radius-large)] overflow-hidden relative", className]} style={style}>
+    <div class:list={["pl-6 md:pl-9 pr-6 md:pr-2 pt-6 md:pt-7 pb-6 relative", {"w-full md:w-[calc(100%_-_52px_-_12px)]": !hasCover, "w-full md:w-[calc(100%_-_15rem_-_12px)]": hasCover}]}>
+        <a href={url}
+           class="transition group w-full block font-bold mb-3 text-3xl text-90
+        hover:text-[var(--primary)] dark:hover:text-[var(--primary)]
+        active:text-[var(--title-active)] dark:active:text-[var(--title-active)]
+        before:w-1 before:h-5 before:rounded-md before:bg-[var(--primary)]
+        before:absolute before:top-[35px] before:left-[18px] before:hidden md:before:block
+        ">
+
+            <span class="post-title-clip">
+                <span class="post-title-track">
+                    {entry.data.order === 1 && <Icon class="inline text-[var(--primary)] mr-2 -translate-y-1" name="material-symbols:keep-outline-rounded" />}
+                    {title}
+                </span>
+            </span>
+        </a>
+
+        <!-- metadata -->
+        <PostMetadata published={published} updated={updated} tags={tags} category={category} hideTagsForMobile={true} hideUpdateDate={true} singleLine={true} class="mb-4"></PostMetadata>
+
+        <!-- description -->
+        <div class="post-desc transition text-75 mb-3.5 pr-4 line-clamp-2 md:line-clamp-1">
+            { description || remarkPluginFrontmatter.excerpt }
+        </div>
+
+        <!-- word count and read time  -->
+        <div class="text-sm text-black/30 dark:text-white/30 flex gap-4 transition">
+            <div>
+                {remarkPluginFrontmatter.words} {" " + i18n(remarkPluginFrontmatter.words === 1 ? I18nKey.wordCount : I18nKey.wordsCount)}
+            </div>
+            <div>|</div>
+            <div>
+                {remarkPluginFrontmatter.minutes} {" " + i18n(remarkPluginFrontmatter.minutes === 1 ? I18nKey.minuteCount : I18nKey.minutesCount)}
+            </div>
+        </div>
+
+    </div>
+
+    {hasCover && <a href={url} aria-label={title}
+                    class:list={["group",
+                        "max-h-[20vh] md:max-h-none mx-4 mt-4 -mb-2 md:mb-0 md:mx-0 md:mt-0",
+                        "md:w-[15rem] relative md:absolute md:top-3 md:bottom-3 md:right-3 rounded-xl overflow-hidden active:scale-95"
+                    ]} >
+        <div class="absolute pointer-events-none z-10 w-full h-full group-hover:bg-black/30 group-active:bg-black/50 transition"></div>
+        <div class="absolute pointer-events-none z-20 w-full h-full flex items-center justify-center ">
+            <Icon name="material-symbols:chevron-right-rounded"
+                  class="transition opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-100 text-white text-5xl">
+            </Icon>
+        </div>
+        <ImageWrapper src={image} basePath={path.join("content/posts/", getDir(entry.id))} alt="Cover Image of the Post"
+                  class="w-full h-full">
+        </ImageWrapper>
+    </a>}
+
+</div>
+<div class="transition border-t-[1px] border-dashed mx-6 border-black/10 dark:border-white/[0.15] last:border-t-0 md:hidden"></div>
+
+<style>
+    /* ===== 标题单行截断 + 溢出滚动（marquee）===== */
+    .post-title-clip {
+        display: block;
+        overflow: hidden;
+        position: relative;
+        container-type: inline-size;
+        white-space: nowrap;
+    }
+    .post-title-track {
+        display: inline-block;
+    }
+    /* 右侧渐隐遮罩：提示标题未展示完 */
+    .post-title-clip::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        right: -0.5rem;
+        bottom: 0;
+        width: 2.5rem;
+        background: linear-gradient(to right, transparent, var(--card-bg));
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+    }
+    .post-title-clip.is-overflow::after {
+        opacity: 1;
+    }
+    .post-title-clip.is-overflow:hover::after {
+        opacity: 0;
+    }
+    /* 仅溢出时启用滚动动画，默认暂停，悬停播放 */
+    .post-title-clip.is-overflow .post-title-track {
+        animation: post-title-scroll 6s linear infinite;
+        animation-play-state: paused;
+    }
+    .post-title-clip.is-overflow:hover .post-title-track {
+        animation-play-state: running;
+    }
+    @keyframes post-title-scroll {
+        0%, 4% { transform: translateX(0); }
+        46%, 54% { transform: translateX(min(0px, calc(-100% + 100cqw))); }
+        96%, 100% { transform: translateX(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .post-title-clip.is-overflow .post-title-track {
+            animation: none;
+        }
+    }
+</style>
+
+<style is:global>
+    /* 摘要悬停浮层的文字色：运行时创建的节点不在 scoped 作用域内，
+       且暗色文字靠 .dark 类切换，不能用 color:inherit（body 无主题文字色） */
+    .post-desc-tip {
+        color: rgb(0 0 0 / 0.75);
+    }
+    .dark .post-desc-tip {
+        color: rgb(255 255 255 / 0.75);
+    }
+</style>
+
+<script>
+    // 标题溢出检测：溢出的卡片加 is-overflow，悬停时滚动展示全文。
+    // Swup 无刷新导航下每次页面载入都要重新检测。
+    function initTitleClips() {
+        document.querySelectorAll<HTMLElement>(".post-title-clip").forEach((el) => {
+            const track = el.querySelector<HTMLElement>(".post-title-track");
+            if (!track) return;
+            el.classList.toggle("is-overflow", track.scrollWidth > el.clientWidth + 1);
+        });
+    }
+    document.addEventListener("astro:page-load", initTitleClips);
+    document.addEventListener("swup:page:view", initTitleClips);
+    initTitleClips();
+
+    // ===== 摘要悬停浮层：摘要被 line-clamp 截断时，悬停以固定定位浮层展示全文 =====
+    const tip = document.createElement("div");
+    tip.className = "post-desc-tip"; // 色彩样式见下方 is:global 块（明暗自适应）
+    // 浮层挂在 body 上，不受卡片 overflow-hidden 裁剪；定位与盒样式内联
+    tip.style.cssText = [
+        "position:fixed", "display:none", "z-index:60", "pointer-events:none",
+        "background:var(--card-bg)", "border:1px solid var(--line-divider)",
+        "padding:0.5rem 0.875rem", "border-radius:0.5rem",
+        "font-size:0.875rem", "line-height:1.6", "max-height:40vh", "overflow-y:auto",
+        "box-shadow:0 4px 16px rgba(0,0,0,0.12)", "white-space:pre-wrap", "word-break:break-word",
+    ].join(";");
+    document.body.appendChild(tip);
+
+    function showDescTip(el: HTMLElement) {
+        // 未被截断的摘要不弹浮层
+        if (el.scrollHeight <= el.clientHeight + 2) return;
+        tip.textContent = el.textContent?.trim() ?? ""; // textContent 渲染，杜绝 XSS
+        tip.style.display = "block";
+        const r = el.getBoundingClientRect();
+        const card = el.closest(".card-base");
+        const cr = card ? card.getBoundingClientRect() : r;
+        tip.style.left = Math.max(8, cr.left + 12) + "px";
+        tip.style.maxWidth = Math.min(560, cr.width - 24) + "px";
+        // 默认显示在摘要下方；视口放不下则改到上方
+        const th = tip.offsetHeight;
+        let top = r.bottom + 6;
+        if (top + th > window.innerHeight - 8) top = r.top - th - 6;
+        tip.style.top = Math.max(8, top) + "px";
+    }
+    function hideDescTip() {
+        tip.style.display = "none";
+    }
+    // 事件委托，Swup 切页无需重新绑定
+    document.addEventListener("mouseover", (e) => {
+        const el = (e.target as Element | null)?.closest?.(".post-desc") as HTMLElement | null;
+        if (el) showDescTip(el);
+        else hideDescTip();
+    });
+    document.addEventListener("mouseout", (e) => {
+        const el = (e.target as Element | null)?.closest?.(".post-desc") as HTMLElement | null;
+        // 鼠标在摘要内部子节点间移动不收起
+        if (el && !(e.relatedTarget instanceof Element && el.contains(e.relatedTarget))) hideDescTip();
+    });
+    window.addEventListener("scroll", hideDescTip, { passive: true });
+</script>

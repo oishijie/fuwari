@@ -1,0 +1,285 @@
+---
+import WidgetLayout from "./WidgetLayout.astro";
+
+interface Props {
+	class?: string;
+	style?: string;
+}
+const className = Astro.props.class;
+const style = Astro.props.style;
+---
+
+<WidgetLayout name="距离" id="distance" class={className} style={style}>
+	<div class="flex flex-col gap-2 text-neutral-900 dark:text-neutral-100">
+		<div>
+			欢迎来自 <span id="geo-city" class="font-bold text-[var(--primary)]">加载中</span> 的小伙伴～（IP 定位可能有误差）
+		</div>
+		<div class="text-sm text-black/75 dark:text-white/75">
+			您的 IP：<span id="geo-ip" tabindex="0"
+				class="font-bold text-[var(--primary)] transition-all duration-300 ease-in-out blur-sm hover:blur-0 focus:blur-0 cursor-pointer">加载中</span>
+		</div>
+		<div>
+			您现在距离我大约 <span id="geo-distance" class="font-bold text-[var(--primary)]">--</span> 公里
+		</div>
+	</div>
+</WidgetLayout>
+
+<script>
+	import { commentConfig } from "../../config";
+
+	// 博主所在地（距离原点）：福建省福州市
+	const HOME_LAT = 26.0745;
+	const HOME_LON = 119.2965;
+	const CACHE_KEY = "lx_distance_cache";
+	const CACHE_DURATION = 1000 * 60 * 60; // 1 小时
+
+	// Cloudflare 边缘返回的是省/市英文名，这里做常用中文映射（未命中回退省级）
+	const PROVINCE_MAP: Record<string, string> = {
+		Beijing: "北京市",
+		Shanghai: "上海市",
+		Tianjin: "天津市",
+		Chongqing: "重庆市",
+		Hebei: "河北省",
+		Shanxi: "山西省",
+		Liaoning: "辽宁省",
+		Jilin: "吉林省",
+		"Heilongjiang": "黑龙江省",
+		Jiangsu: "江苏省",
+		Zhejiang: "浙江省",
+		Anhui: "安徽省",
+		Fujian: "福建省",
+		Jiangxi: "江西省",
+		Shandong: "山东省",
+		Henan: "河南省",
+		Hubei: "湖北省",
+		Hunan: "湖南省",
+		Guangdong: "广东省",
+		Hainan: "海南省",
+		Sichuan: "四川省",
+		Guizhou: "贵州省",
+		Yunnan: "云南省",
+		Shaanxi: "陕西省",
+		Gansu: "甘肃省",
+		Qinghai: "青海省",
+		Guangxi: "广西壮族自治区",
+		"Inner Mongolia": "内蒙古自治区",
+		Ningxia: "宁夏回族自治区",
+		Xinjiang: "新疆维吾尔自治区",
+		"Xinjiang Uyghur Autonomous Region": "新疆维吾尔自治区",
+		Tibet: "西藏自治区",
+		"Hong Kong": "中国香港",
+		Macao: "中国澳门",
+		Taiwan: "中国台湾",
+	};
+
+	const CITY_MAP: Record<string, string> = {
+		Fuzhou: "福州市",
+		Xiamen: "厦门市",
+		Quanzhou: "泉州市",
+		Zhangzhou: "漳州市",
+		Putian: "莆田市",
+		Ningde: "宁德市",
+		Nanping: "南平市",
+		Sanming: "三明市",
+		Longyan: "龙岩市",
+		Beijing: "北京市",
+		Shanghai: "上海市",
+		Tianjin: "天津市",
+		Chongqing: "重庆市",
+		Guangzhou: "广州市",
+		Shenzhen: "深圳市",
+		Dongguan: "东莞市",
+		Foshan: "佛山市",
+		Zhuhai: "珠海市",
+		Zhongshan: "中山市",
+		Huizhou: "惠州市",
+		Shantou: "汕头市",
+		Zhanjiang: "湛江市",
+		Hangzhou: "杭州市",
+		Ningbo: "宁波市",
+		Wenzhou: "温州市",
+		Jiaxing: "嘉兴市",
+		Shaoxing: "绍兴市",
+		Jinhua: "金华市",
+		Taizhou: "台州市",
+		Nanjing: "南京市",
+		Suzhou: "苏州市",
+		Wuxi: "无锡市",
+		Nantong: "南通市",
+		Xuzhou: "徐州市",
+		Yangzhou: "扬州市",
+		Changzhou: "常州市",
+		Hefei: "合肥市",
+		Nanchang: "南昌市",
+		Jinan: "济南市",
+		Qingdao: "青岛市",
+		Yantai: "烟台市",
+		Weifang: "潍坊市",
+		Linyi: "临沂市",
+		Zibo: "淄博市",
+		Zhengzhou: "郑州市",
+		Luoyang: "洛阳市",
+		Wuhan: "武汉市",
+		Changsha: "长沙市",
+		Nanning: "南宁市",
+		Guilin: "桂林市",
+		Liuzhou: "柳州市",
+		Haikou: "海口市",
+		Sanya: "三亚市",
+		Chengdu: "成都市",
+		Mianyang: "绵阳市",
+		Guiyang: "贵阳市",
+		Zunyi: "遵义市",
+		Kunming: "昆明市",
+		"Xi'an": "西安市",
+		"Lanzhou": "兰州市",
+		"Urumqi": "乌鲁木齐市",
+		Hohhot: "呼和浩特市",
+		Baotou: "包头市",
+		"Lhasa": "拉萨市",
+		Xining: "西宁市",
+		Yinchuan: "银川市",
+		"Shijiazhuang": "石家庄市",
+		Tangshan: "唐山市",
+		Baoding: "保定市",
+		Harbin: "哈尔滨市",
+		Daqing: "大庆市",
+		Changchun: "长春市",
+		Jilin: "吉林市",
+		Shenyang: "沈阳市",
+		Dalian: "大连市",
+		Anshan: "鞍山市",
+	};
+
+	function calculateDistanceKmRounded(lat: number, lon: number): number {
+		const R = 6371;
+		const rad = Math.PI / 180;
+		const dLat = (lat - HOME_LAT) * rad;
+		const dLon = (lon - HOME_LON) * rad;
+		const a =
+			Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+			Math.cos(HOME_LAT * rad) * Math.cos(lat * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+		const km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+		return Number.isFinite(km) ? Math.round(km) : NaN;
+	}
+
+	function isValidIp(ip: string): boolean {
+		if (/^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$/.test(ip)) return true;
+		return ip.includes(":") && /^[0-9a-fA-F:]+$/.test(ip) && ip.length >= 2;
+	}
+
+	function formatLocation(country: string, province: string, city: string): string {
+		if (country !== "CN") {
+			return country || "神秘地区";
+		}
+		const p = PROVINCE_MAP[province] ?? "";
+		const c = CITY_MAP[city] ?? "";
+		const joined = `${p} ${c}`.trim();
+		return joined || "中国";
+	}
+
+	function readCache(): Record<string, unknown> | null {
+		try {
+			const raw = localStorage.getItem(CACHE_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			if (!parsed || typeof parsed !== "object") return null;
+			if (!parsed.timestamp || Date.now() - parsed.timestamp > CACHE_DURATION) {
+				localStorage.removeItem(CACHE_KEY);
+				return null;
+			}
+			if (typeof parsed.ipText === "string" && parsed.ipText !== "未知" && !isValidIp(parsed.ipText)) return null;
+			return parsed;
+		} catch {
+			return null;
+		}
+	}
+
+	function writeCache(obj: Record<string, unknown>): void {
+		try {
+			localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
+		} catch {
+			/* ignore */
+		}
+	}
+
+	async function fetchWithTimeout(url: string, ms = 5000): Promise<Response> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), ms);
+		try {
+			return await fetch(url, { signal: controller.signal });
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	function setText(id: string, text: string): void {
+		const el = document.getElementById(id);
+		if (el) el.textContent = text;
+	}
+
+	function applyToUI(payload: Record<string, unknown>): void {
+		setText("geo-city", String(payload.locationText ?? "未知"));
+		setText("geo-ip", String(payload.ipText ?? "未知"));
+		setText("geo-distance", Number.isFinite(payload.distanceKm) ? String(payload.distanceKm) : "--");
+	}
+
+	async function loadGeoData(): Promise<void> {
+		const apiBase = commentConfig.apiBase.replace(/\/+$/, "");
+		const cityEl = document.getElementById("geo-city");
+		const ipEl = document.getElementById("geo-ip");
+		const distanceEl = document.getElementById("geo-distance");
+		if (!cityEl || !ipEl || !distanceEl || !apiBase) return;
+
+		setText("geo-city", "加载中");
+		setText("geo-ip", "加载中");
+		setText("geo-distance", "--");
+
+		const cached = readCache();
+		if (cached) {
+			applyToUI(cached);
+			return;
+		}
+
+		try {
+			const res = await fetchWithTimeout(`${apiBase}/geo`, 5000);
+			if (!res.ok) throw new Error("HTTP error");
+			const data = (await res.json()) as Record<string, unknown>;
+
+			const ip = String(data.ip ?? "").trim();
+			const lat = typeof data.lat === "number" ? data.lat : NaN;
+			const lon = typeof data.lon === "number" ? data.lon : NaN;
+
+			const payload: Record<string, unknown> = {
+				ipText: isValidIp(ip) ? ip : "未知",
+				locationText: formatLocation(String(data.country ?? ""), String(data.province ?? ""), String(data.city ?? "")),
+				distanceKm: Number.isFinite(lat) && Number.isFinite(lon) ? calculateDistanceKmRounded(lat, lon) : NaN,
+				timestamp: Date.now(),
+			};
+
+			applyToUI(payload);
+			writeCache(payload);
+		} catch {
+			setText("geo-city", "未知");
+			setText("geo-ip", "未知");
+			setText("geo-distance", "--");
+		}
+	}
+
+	function initDistanceWidget(): void {
+		const root = document.getElementById("distance");
+		if (!root) return;
+
+		// 文章页隐藏该卡片（与原站行为一致）
+		const isArticle = /^\/(posts|post)\//.test(location.pathname);
+		const card = root.closest("widget-layout") as HTMLElement | null;
+		if (card) card.style.display = isArticle ? "none" : "";
+		if (isArticle) return;
+
+		loadGeoData();
+	}
+
+	initDistanceWidget();
+	document.addEventListener("astro:page-load", initDistanceWidget);
+	document.addEventListener("swup:page:view", initDistanceWidget);
+</script>

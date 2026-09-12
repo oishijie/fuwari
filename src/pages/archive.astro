@@ -1,0 +1,16 @@
+---
+import ArchiveHeatmap from "@components/ArchiveHeatmap.svelte";
+import ArchivePanel from "@components/ArchivePanel.svelte";
+import I18nKey from "@i18n/i18nKey";
+import { i18n } from "@i18n/translation";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { getHeatmapEntries, getSortedPostsList } from "../utils/content-utils";
+
+const sortedPostsList = await getSortedPostsList();
+const heatEntries = await getHeatmapEntries();
+---
+
+<MainGridLayout title={i18n(I18nKey.archive)}>
+    <ArchiveHeatmap entries={heatEntries} client:only="svelte"></ArchiveHeatmap>
+    <ArchivePanel sortedPosts={sortedPostsList} client:only="svelte"></ArchivePanel>
+</MainGridLayout>

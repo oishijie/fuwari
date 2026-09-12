@@ -1,0 +1,49 @@
+---
+// Webviso 自托管访问统计组件
+// 兼容 Fuwari 的 Swup 无刷新导航：首次加载 + 每次 page:view 都会统计一次。
+---
+
+<script>
+import { webvisoConfig } from "../config";
+
+async function track() {
+	if (!webvisoConfig.enable || !webvisoConfig.baseUrl) return;
+	const base = webvisoConfig.baseUrl.replace(/\/+$/, "");
+	try {
+		const res = await fetch(`${base}/api/visit`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				hostname: location.hostname,
+				url: location.pathname,
+				referrer: document.referrer,
+				pv: true,
+				uv: true,
+			}),
+		});
+		const json = await res.json();
+		if (json?.ret === "OK" && json.data) {
+			const pvEl = document.getElementById(webvisoConfig.pvId);
+			const uvEl = document.getElementById(webvisoConfig.uvId);
+			if (pvEl && typeof json.data.pv === "number")
+				pvEl.textContent = String(json.data.pv);
+			if (uvEl && typeof json.data.uv === "number")
+				uvEl.textContent = String(json.data.uv);
+		}
+	} catch (e) {
+		/* 统计失败静默处理，不影响页面 */
+	}
+}
+
+// 首次进入站点时统计
+track();
+
+// 兼容 Swup：每次无刷新切换页面后重新统计
+if (window?.swup?.hooks) {
+	window.swup.hooks.on("page:view", track);
+} else {
+	document.addEventListener("swup:enable", () => {
+		window.swup.hooks.on("page:view", track);
+	});
+}
+</script>

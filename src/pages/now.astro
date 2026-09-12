@@ -1,0 +1,46 @@
+---
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { getHiddenPosts } from "../utils/content-utils";
+import { getPostUrlBySlug, url } from "@utils/url-utils";
+
+const posts = await getHiddenPosts();
+const lastUpdate = posts.length > 0 ? posts[0].published : null;
+const fmt = (d: Date) => d.toISOString().split("T")[0];
+---
+
+<MainGridLayout title="Now" description="不上首页的随手记录">
+    <div class="card-base px-8 py-6 mb-4 onload-animation" style="animation-delay: var(--content-delay)">
+        <div class="flex items-baseline justify-between mb-1">
+            <h1 class="text-xl font-semibold text-[var(--primary)]">Now</h1>
+            <span class="text-sm text-black/40 dark:text-white/40">{posts.length} 条记录{lastUpdate ? ` · 最近更新 ${fmt(lastUpdate)}` : ""}</span>
+        </div>
+        <p class="text-sm text-black/55 dark:text-white/60 leading-relaxed mb-3">
+            这里的内容不会出现在首页时间线和 RSS 里——只是随手记，写了就发，没有心理负担。理念来自
+            <a href="https://www.owenyoung.com/jant" target="_blank" rel="noopener" class="link text-[var(--primary)]">Owen 的 Jant</a>（Hidden from Latest）。
+        </p>
+        <div class="border-t border-[var(--line-divider)]">
+            {posts.length === 0 && (
+                <div class="py-12 text-center text-sm text-black/40 dark:text-white/40">
+                    还没有记录。给任意文章的 frontmatter 加上 <code class="bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-xs">hidden: true</code>，它就会出现在这里。
+                </div>
+            )}
+            {posts.map((post, i) => (
+                <a
+                    href={url(getPostUrlBySlug(post.slug))}
+                    class="block py-4 border-b border-[var(--line-divider)] group onload-animation"
+                    style={`animation-delay: calc(var(--content-delay) + ${(i + 1) * 50}ms)`}
+                >
+                    <div class="flex items-baseline justify-between gap-4">
+                        <h2 class="text-[1.05rem] font-semibold text-black/80 dark:text-white/80 group-hover:text-[var(--primary)] transition-colors line-clamp-1">
+                            {post.title}
+                        </h2>
+                        <time class="text-xs text-black/35 dark:text-white/35 whitespace-nowrap">{fmt(post.published)}</time>
+                    </div>
+                    {post.description && (
+                        <p class="mt-1 text-sm text-black/55 dark:text-white/60 line-clamp-2">{post.description}</p>
+                    )}
+                </a>
+            ))}
+        </div>
+    </div>
+</MainGridLayout>

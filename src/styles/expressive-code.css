@@ -1,0 +1,31 @@
+.expressive-code {
+    .frame {
+        @apply !shadow-none relative;
+    }
+
+    /* ===== 长代码块限高 + 内部滚动 =====
+       选择器须高于 EC 的 reset 规则（.expressive-code :not(:is(svg,svg *))
+       带 max-height:revert，同优先级会反悔我们的声明） */
+    .frame pre {
+        max-height: 22rem; /* 约 17 行，超出滚动 */
+        overscroll-behavior: contain; /* 滚到头不带动整页滚动 */
+    }
+
+    /* 未滚到底时底部渐隐，提示下方还有代码 */
+    .frame.is-clipped::after {
+        content: "";
+        pointer-events: none;
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 3.5rem;
+        /* 代码块恒为深色底（github-dark），渐变对齐其背景色 */
+        background: linear-gradient(to top, #24292e 30%, transparent);
+        border-radius: 0 0 var(--radius-large, 0.5rem) var(--radius-large, 0.5rem);
+    }
+
+    .title {
+        font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+}
