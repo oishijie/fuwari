@@ -57,14 +57,15 @@
 ## 🚀 快速开始
 
 ### 环境要求
-- **Node.js** 18+（CI 验证过 22 / 23）
+- **Node.js** 18+（推荐 22）
 - **pnpm** 9+（已通过 `preinstall` 钩子强制）
 
 ### 安装与运行
 
 ```bash
 # 克隆仓库
-git clone <仓库地址>
+git clone https://github.com/oishijie/fuwari.git
+cd fuwari
 
 # 安装依赖
 pnpm install
