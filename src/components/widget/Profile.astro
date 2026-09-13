@@ -5,6 +5,11 @@ import { url } from "../../utils/url-utils";
 import ImageWrapper from "../misc/ImageWrapper.astro";
 
 const config = profileConfig;
+// 签名图是一张透明底的单色图：用 CSS mask 裁出笔画形状，再用主题色填充，
+// 所以换主题色时签名也跟着变，不需要准备多张配色的图。
+// 字体「志莽行书」（Google Fonts），由 .workbuddy/tools/gen-signature.mjs
+// 取字形轮廓生成 —— 想换字体/换字/改大小，跑那个脚本 + 调下面的 max-width 即可。
+const signature = config.signature;
 ---
 <div class="card-base p-3">
     <a aria-label="Go to About Page" href={url('/about/')}
@@ -19,14 +24,34 @@ const config = profileConfig;
         <ImageWrapper src={config.avatar || ""} alt="Profile Image of the Author" class="mx-auto lg:w-full h-full lg:mt-0 "></ImageWrapper>
     </a>
     <div class="px-2">
-        <div class="font-bold text-xl text-center mb-1 dark:text-neutral-50 transition">{config.name}</div>
-        <div class="h-1 w-5 bg-[var(--primary)] mx-auto rounded-full mb-2 transition"></div>
-        <div class="text-center text-neutral-400 mb-2.5 transition">{config.bio}</div>
+        <div class="font-bold text-xl text-center mb-1 dark:text-neutral-50 transition signature-container">
+            {signature ? (
+                <>
+                    {/* 小屏放不下浮层，退回纯文字 */}
+                    <span class="lg:hidden">{config.name}</span>
+                    <span class="signature-img hidden lg:block" role="img" aria-label={config.name}>
+                        {/* 隐形占位图：只为按原始比例撑出高度，可见的笔画来自下面的 mask 层 */}
+                        <img src={signature} alt="" aria-hidden="true" class="invisible w-full" />
+                        <span
+                            class="signature-mask"
+                            style={`-webkit-mask-image: url('${signature}'); mask-image: url('${signature}');`}
+                        ></span>
+                    </span>
+                </>
+            ) : (
+                config.name
+            )}
+        </div>
+        <div class="h-1 w-8 bg-[var(--primary)] mx-auto rounded-full mb-2 transition signature-rule"></div>
+        <div class="text-center text-neutral-400 mb-2.5 transition signature-caption">{config.bio}</div>
         <div class="flex flex-wrap gap-2 justify-center mb-1">
             {config.links.length > 1 && config.links.map(item =>
-                    <a rel="me" aria-label={item.name} href={item.url} target="_blank" class="btn-regular rounded-lg h-10 w-10 active:scale-90">
-                        <Icon name={item.icon} class="text-[1.5rem]"></Icon>
-                    </a>
+                    <span class="social-tip-wrap">
+                        <a rel="me" aria-label={item.name} href={item.url} target="_blank" class="btn-regular rounded-lg h-10 w-10 active:scale-90">
+                            <Icon name={item.icon} class="text-[1.5rem]"></Icon>
+                        </a>
+                        <span class="social-tip">{item.name}</span>
+                    </span>
             )}
             {config.links.length == 1 && <a rel="me" aria-label={config.links[0].name} href={config.links[0].url} target="_blank"
                                             class="btn-regular rounded-lg h-10 gap-2 px-3 font-bold active:scale-95">
@@ -37,3 +62,91 @@ const config = profileConfig;
     </div>
 </div>
 
+<style>
+    /* ============ 手写签名浮层 ============
+       思路（与 leehenry.top 侧边栏卡片一致）：
+       用负下边距抵消自身占位、再用 translateY 往上提，
+       于是视觉上压在头像下缘之上，却不增加卡片总高度。
+
+       落款三层：签名（手写体）→ 短横（主题色）→ 小字（一句话），
+       参照「手写题款」的排布：主体横跨头像下缘，短横与小字紧随其下。 */
+
+    .signature-container {
+        overflow: visible;
+    }
+
+    .signature-img {
+        position: relative;
+        z-index: 60;
+        display: block;
+        /* 签名是西文手写体（很长的一条），所以横向占满文字栏（= 头像宽的 240/256） */
+        max-width: 100%;
+        height: auto;
+        /* 这个负下边距会与容器自身的 mb-1(4px) 折叠成 -25.1px（基准是包含块宽 240）：
+           签名底 = 头像下缘 + 23.7px，短横顶 = 头像下缘 + 33.7px。
+           原来的 -40% 把短横顶拽到头像下缘 -33px（头像内部），被头像整个盖住。 */
+        margin: 0 auto -12.125%;
+        transform: translateY(-75%);
+    }
+
+    /* 短横和一句话必须能在头像之上绘制：
+       头像 <a> 是定位元素、它们是 static，不提升层级就会被头像盖住。 */
+    .signature-rule,
+    .signature-caption {
+        position: relative;
+        z-index: 60;
+    }
+
+    /* 用签名图当遮罩，填充主题色 → 笔画颜色跟随站点主色 */
+    .signature-mask {
+        position: absolute;
+        inset: 0;
+        display: block;
+        background-color: var(--primary);
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+    }
+
+    @media (max-width: 1023px) {
+        .signature-img {
+            display: none !important;
+        }
+    }
+
+    /* ============ 社交图标悬停提示 ============ */
+    .social-tip-wrap {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .social-tip {
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        margin-bottom: 6px;
+        padding: 0.3rem 0.6rem;
+        background: var(--card-bg);
+        color: var(--btn-content);
+        border: 1px solid var(--btn-card-bg-active);
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+        font-size: 0.8rem;
+        font-weight: 400;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.18s ease-in-out, visibility 0.18s ease-in-out;
+        z-index: 200;
+    }
+
+    .social-tip-wrap:hover .social-tip {
+        opacity: 1;
+        visibility: visible;
+    }
+</style>

@@ -22,6 +22,8 @@ interface Props {
 	lang?: string;
 	setOGTypeArticle?: boolean;
 	headings?: MarkdownHeading[];
+	/** 该页侧栏是否支持折叠（默认折叠、正文吃满 --page-width、可手动展开）。文章页开启。 */
+	sidebarCollapsible?: boolean;
 }
 
 const {
@@ -31,6 +33,7 @@ const {
 	lang,
 	setOGTypeArticle,
 	headings = [],
+	sidebarCollapsible = false,
 } = Astro.props;
 const hasBannerCredit =
 	siteConfig.banner.enable && siteConfig.banner.credit.enable;
@@ -45,6 +48,119 @@ const mainPanelTop = siteConfig.banner.enable
 
 <!-- Navbar -->
 <slot slot="head" name="head"></slot>
+
+<!-- 侧栏折叠状态：必须在本布局的网格渲染之前同步写入 <html data-sidebar>，
+     否则首屏会先按默认布局绘制再跳变。脚本位于 grid 之前，因此是同步执行的。 -->
+<script is:inline define:vars={{ sidebarCollapsible: sidebarCollapsible === true }}>
+(function () {
+    var COLLAPSIBLE = sidebarCollapsible;
+    var KEY = 'sidebar-expanded';
+    var root = document.documentElement;
+
+    // 判断是不是文章页：一律用「目标 URL」而不是 window.location。
+    // swup 的 content:replace / page:view 触发时地址栏可能还没更新，
+    // 读 location 会拿到上一页的路径，状态就错成 off（这就是「要刷新才生效」的根因之一）。
+    function isPostUrl(u) {
+        var p;
+        try { p = new URL(u || location.href, location.origin).pathname; }
+        catch (e) { p = location.pathname; }
+        return p.indexOf('/posts/') === 0;
+    }
+
+    function readPref() {
+        try { return sessionStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    }
+
+    function writePref(v) {
+        try { sessionStorage.setItem(KEY, v ? '1' : '0'); } catch (e) { /* 隐私模式下忽略 */ }
+    }
+
+    // collapsed = 折叠（默认） / expanded = 用户手动展开 / off = 本页不适用
+    function stateFor(u) {
+        if (!COLLAPSIBLE || !isPostUrl(u)) return 'off';
+        return readPref() ? 'expanded' : 'collapsed';
+    }
+
+    function syncButton() {
+        var btn = document.getElementById('sidebar-toggle');
+        if (!btn) return;
+        var expanded = root.getAttribute('data-sidebar') === 'expanded';
+        var label = expanded ? '收起侧栏' : '展开侧栏';
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('title', label);
+        btn.setAttribute('aria-expanded', String(expanded));
+    }
+
+    // 只在值真的变化时才写属性（重复写入会触发无谓的样式重算与过渡）。
+    // animate=false 时先挂 data-sidebar-noanim 关掉过渡：swup 切页是「整页换布局」，
+    // 栅格列宽与内边距都是容器宽度的函数，若在切换过程中逐帧插值，正文会来回重排 —— 既闪又卡。
+    function setState(s, animate) {
+        if (root.getAttribute('data-sidebar') === s) { syncButton(); return; }
+        if (!animate) root.setAttribute('data-sidebar-noanim', '');
+        root.setAttribute('data-sidebar', s);
+        syncButton();
+        if (!animate) {
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    root.removeAttribute('data-sidebar-noanim');
+                });
+            });
+        }
+    }
+
+    var pendingUrl = null;      // swup 目标 URL（地址栏更新前唯一可靠的来源）
+
+    var bound = false;
+    function bind() {
+        var btn = document.getElementById('sidebar-toggle');
+        if (!btn || bound) return;
+        bound = true;
+        btn.addEventListener('click', function () {
+            if (!isPostUrl(location.href)) return;
+            var expanded = readPref();
+            writePref(!expanded);
+            syncButton();
+            setState(expanded ? 'collapsed' : 'expanded', true);   // 手动切换：保留过渡动画
+        });
+    }
+
+    function refresh(animate) {
+        bind();
+        setState(stateFor(pendingUrl || location.href), animate === true);
+    }
+
+    // 首屏：本脚本位于 grid 之前、同步执行，此时写入不会有闪烁
+    setState(stateFor(location.href), false);
+
+    // ---- swup 生命周期：优先用 swup 原生 hooks（时机最早，且能拿到目标 URL）----
+    function setupSwup() {
+        var swup = window.swup;
+        if (!swup || !swup.hooks) return false;
+        // 点链接、内容还没换时先记下目标 URL
+        swup.hooks.on('visit:start', function (visit) {
+            var to = visit && visit.to && (visit.to.url || visit.to);
+            pendingUrl = typeof to === 'string' ? to : null;
+        });
+        swup.hooks.on('content:replace', function () { refresh(false); });
+        swup.hooks.on('page:view', function () { refresh(false); });
+        swup.hooks.on('visit:end', function () { refresh(false); pendingUrl = null; });
+        return true;
+    }
+
+    if (!setupSwup()) {
+        document.addEventListener('swup:enable', setupSwup);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { refresh(false); });
+    } else {
+        refresh(false);
+    }
+    // 兜底：Astro 自己的页面加载事件（首屏与任何未被 swup hook 覆盖的情况）
+    document.addEventListener('astro:page-load', function () { refresh(false); });
+})();
+</script>
+
 <div id="top-row" class="z-50 pointer-events-none relative transition-all duration-700 max-w-[var(--page-width)] px-0 md:px-4 mx-auto" class:list={[""]}>
     <div id="navbar-wrapper" class="pointer-events-auto sticky top-0 transition-all">
         <Navbar></Navbar>
@@ -104,6 +220,14 @@ const mainPanelTop = siteConfig.banner.enable
 <!-- 悬浮工具栏放在 main-grid 之外，避免祖先 transform 导致 fixed 定位失效 -->
 <BackToTop></BackToTop>
 
+<!-- 侧栏折叠开关：贴在正文左边缘外侧的空白区（lg 以上可见，仅文章页）。
+     ⚠️ 必须**无条件渲染**，不能写成 `{sidebarCollapsible && (...)}`：swup 只替换 `main` 与 `#toc`，
+     这个按钮在容器之外、属于「首屏那一份」HTML。若按页面条件渲染，从首页进站再点进文章时
+     按钮根本不存在（只能整页刷新才出现）——显隐一律交给 `data-sidebar` 的 CSS 控制。 -->
+<button id="sidebar-toggle" type="button" aria-label="展开侧栏" title="展开侧栏" aria-expanded="false" aria-controls="sidebar">
+    <Icon name="material-symbols:chevron-right-rounded" class="sidebar-toggle-icon"></Icon>
+</button>
+
 <!-- The things that should be under the banner, only the TOC for now -->
 <div class="absolute w-full z-0 hidden 2xl:block">
     <div class="relative max-w-[var(--page-width)] mx-auto">
@@ -125,3 +249,117 @@ const mainPanelTop = siteConfig.banner.enable
     </div>
 </div>
 </Layout>
+
+<style is:global>
+/* ================= 文章页侧栏折叠 =================
+   状态统一由 <html data-sidebar="collapsed|expanded|off"> 驱动，
+   该属性由上面的内联脚本在首屏绘制前同步写入（见脚本注释）。
+   - collapsed：第一列收成 0，卡片吃满 --page-width，正文收进阅读列
+   - expanded ：用户手动展开
+   - off      ：本页不适用（首页 / 归档 / 关于 …），保持原双栏布局
+   移动端（<1024px）本就是单列堆叠，不参与折叠。 */
+
+/* 阅读列宽度：折叠态下正文的量宽。
+   50rem = 800px，**恰好等于展开态的量宽**（main 列 872 − 卡片左右内边距各 36px），
+   所以折叠/展开切换时正文宽度不变、只是整列左右滑动，视觉上不突兀。
+   想更窄就改这一个数字：46rem ≈ 46 汉字/行，42rem ≈ 42 汉字/行。 */
+:root {
+    --read-width: 50rem;
+}
+
+@media (min-width: 1024px) {
+    /* 栅格列宽变化默认不在 Tailwind 的 transition 属性列表里，这里显式声明 */
+    #main-grid {
+        transition: grid-template-columns 0.35s ease, column-gap 0.35s ease;
+    }
+
+    /* swup 切页时由脚本临时挂上 data-sidebar-noanim，两帧后移除，用来关掉过渡。
+       切页是「整页换布局」：列宽与内边距都是容器宽度的函数，若在切换过程中逐帧插值，
+       正文会来回重排 —— 既闪又卡，这正是「加载/切换变慢」的观感来源。
+       手动点击折叠开关时不挂这个属性，过渡动画照常保留。 */
+    html[data-sidebar-noanim] #main-grid,
+    html[data-sidebar-noanim] #sidebar {
+        transition: none !important;
+    }
+
+    html[data-sidebar="collapsed"] #main-grid {
+        grid-template-columns: 0px auto;
+        column-gap: 0;
+    }
+
+    /* 侧栏用 visibility 隐藏（保留栅格结构，不触发重排闪烁），
+       折叠时先淡出 0.3s 再隐藏；展开时立即可见并淡入 */
+    #sidebar {
+        transition: opacity 0.3s ease, visibility 0s;
+    }
+    html[data-sidebar="collapsed"] #sidebar {
+        visibility: hidden;
+        opacity: 0;
+        pointer-events: none;
+        overflow: hidden;
+        min-width: 0;
+        transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+    }
+
+    /* 仅当本页支持折叠（且脚本已写入状态）时才显示开关，避免 JS 未执行时出现死按钮 */
+    html[data-sidebar="collapsed"] #sidebar-toggle,
+    html[data-sidebar="expanded"] #sidebar-toggle {
+        display: flex;
+    }
+
+    /* ============ 折叠态：把正文收回阅读列并居中 ============
+       注意这里收窄的是**卡片内部的文字列**，卡片外缘仍是 1168px，
+       所以「卡片与顶栏等宽」这条对齐线不受影响。
+       左右内边距 = (卡片宽 − 阅读列宽) / 2。padding 的百分比基准是包含块宽度
+       （= #post-container 的父级宽度 = 正文列宽），所以 calc(100% - var(--read-width))
+       除以 2 正好把富余宽度左右平分。
+       max() 兜底：视口窄到算不出留白时（<848px，实际不会发生）退回 24px。
+       特异性 (1,1,1) 高于 `md:px-9` 的 (0,1,0)，能正常覆盖。
+
+       ⚠️ 这里**故意不给 padding 加 transition**。因为 padding 是「跟随容器宽度」算出来的，
+       逐帧代入可得 正文量宽 = mainCol(t) − 2·padding(t) ≡ 800px —— 写成过渡反而会
+       因为两端做插值而在动画中点鼓到 874px（文字来回重排）。不写过渡时它自己就是恒定的，
+       而且这样也不会覆盖 .card-base 的 Tailwind transition（主题切换底色照常淡入）。 */
+    html[data-sidebar="collapsed"] #post-container {
+        padding-left: max(1.5rem, calc((100% - var(--read-width)) / 2));
+        padding-right: max(1.5rem, calc((100% - var(--read-width)) / 2));
+    }
+}
+
+#sidebar-toggle {
+    display: none;
+    position: fixed;
+    /* 贴住正文左边缘之外的空白区；视口不足 1200px（--page-width）时退到屏幕最左 */
+    left: max(0.5rem, calc((100vw - var(--page-width)) / 2 - 3.5rem));
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 45;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 3.25rem;
+    border-radius: 0.75rem;
+    color: var(--primary);
+    background: var(--card-bg);
+    border: 1px solid var(--line-divider);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    opacity: 0.72;
+    cursor: pointer;
+    transition: opacity 0.2s ease, background 0.2s ease, transform 0.25s ease;
+}
+#sidebar-toggle:hover {
+    opacity: 1;
+    background: var(--btn-plain-bg-hover);
+}
+#sidebar-toggle:active {
+    transform: translateY(-50%) scale(0.94);
+}
+.sidebar-toggle-icon {
+    font-size: 1.5rem;
+    transition: transform 0.3s ease;
+}
+/* 展开状态下箭头转向左侧，提示「点我收起」 */
+html[data-sidebar="expanded"] .sidebar-toggle-icon {
+    transform: rotate(180deg);
+}
+</style>

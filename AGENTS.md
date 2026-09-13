@@ -45,11 +45,14 @@
 
 ## 注意事项与已知风险
 
-- 头像与 favicon 使用外部图床 `imgbed.142588.xyz`——构建不依赖其可达性，但页面渲染会。
+- 正文配图托管在自建图床 `imgbed.058823.xyz`（Sanyue ImgHub）——构建不依赖其可达性，但页面渲染会。旧域名 `imgbed.142588.xyz` 已 DNS 失效，**不要再引用**；favicon 之类关键静态资源一律放本地 `public/`。
+- **文章文件名即 URL**：`src/content/posts/<name>.md` → `/posts/<name>/`，而且 Astro 还会对文件名做 slugify（转小写、空格转 `-`、标点直接删掉）。**文件名一律用英文小写 + 连字符**（如 `sidebar-collapse`），中文标题只写在 frontmatter 的 `title`。
+  - 改文件名 = 改 URL。历史外链靠 `public/_redirects` 的 301 兜底：**旧 URL 必须从 `dist/posts/` 里实际生成的目录取**（那就是线上跑过的路径），不能拿文件名原文反推——两者不一致（例：`Now 页启用：把发布门槛降到零.md` 的旧 URL 是 `/posts/now-页启用把发布门槛降到零/`）。
+  - ⚠️ 评论以 `location.pathname` 为 key，**改 URL 会让历史评论与文章失联**，需同步迁移 D1 里 `comments.post_slug` 的旧值。
 - 评论后端地址在 `commentConfig.apiBase`（当前 `https://comments.142588.xyz`），**留空时评论区不加载**（前端静默跳过请求）。改博客域名后，记得同步 Worker `wrangler.jsonc` 的 `ALLOWED_ORIGINS` 白名单。
 - 评论后端**必须绑自定义域名**：`*.workers.dev` 在中国大陆被 DNS 污染（实测解析到假 IP、HTTP 000），用它是不可用的。
 - `astro.config.mjs` 的 `site` 字段必须与真实域名一致，否则 RSS / Sitemap / OG 的绝对链接会出错。
-- 本仓库**当前不含 `.git` 目录**（纯源码快照），无版本历史可比对。
+- 本仓库是 git 仓库（remote `oishijie/fuwari`）。**部署由 Cloudflare Pages 的 Git 集成自动完成**：push 到 `main` 后约 10s 被接收、约 80s 构建上线，无需本地构建。备用直传：`pnpm build && npx -y wrangler pages deploy dist --project-name=fuwari --branch=main`。
 
 ## 评论后端（workers/comments/）
 

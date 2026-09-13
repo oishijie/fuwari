@@ -32,13 +32,11 @@ export const siteConfig: SiteConfig = {
 		enable: true, // Display the table of contents on the right side of the post
 		depth: 2, // Maximum heading depth to show in the table, from 1 to 3
 	},
-	favicon: [
-		{
-			src: "https://imgbed.142588.xyz/file/1774865152688_image.png", // Path of the favicon, relative to the /public directory
-			theme: "light", // (Optional) Either 'light' or 'dark', set only if you have different favicons for light and dark mode
-			sizes: "32x32", // (Optional) Size of the favicon, set only if you have favicons of different sizes
-		},
-	],
+	// 留空 = 使用 src/constants/icon.ts 里的 defaultFavicons：
+	// 本地 public/favicon/*.png（亮/暗两套 × 32/128/180/192），零外部依赖。
+	// ⚠️ 不要再写外链。曾指向 imgbed.142588.xyz，该域名后来 DNS 整体失效，
+	// 而 siteConfig.favicon 非空会覆盖默认值，导致整站 favicon 静默加载失败（浏览器退回空白页图标）。
+	favicon: [],
 };
 
 export const navBarConfig: NavBarConfig = {
@@ -79,6 +77,8 @@ export const profileConfig: ProfileConfig = {
 	avatar: "/avatar.png", // Relative to the /src directory. Relative to the /public directory if it starts with '/'
 	name: "Watch Your Back",
 	bio: "风过留痕，雁过留声",
+	// 手写签名图（透明底单色即可，颜色自动跟随主题色）；留空则 PC 端显示上面的 name 文字
+	signature: "/signature.webp",
 	links: [
 		{
 			name: "Github",

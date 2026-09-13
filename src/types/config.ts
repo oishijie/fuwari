@@ -66,6 +66,12 @@ export type ProfileConfig = {
 	avatar?: string;
 	name: string;
 	bio?: string;
+	/**
+	 * 手写签名图：透明底、单色即可（颜色由主题色填充）。
+	 * 放在 public 下，例如 "/signature.webp"。
+	 * 配置后 PC 端侧边栏用签名替代文字 name，并浮在头像下缘之上；留空则显示纯文字。
+	 */
+	signature?: string;
 	links: {
 		name: string;
 		url: string;
