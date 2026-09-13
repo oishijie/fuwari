@@ -194,11 +194,37 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 
 ## 🌐 部署
 
-本项目支持以下平台一键部署：
-- [Vercel](https://vercel.com)
-- [Cloudflare Pages](https://pages.cloudflare.com)
-- [Netlify](https://netlify.com)
-- [EdgeOne](https://edgeone.ai)
+站点托管在 **Cloudflare Pages**，域名 [`blog.142588.xyz`](https://blog.142588.xyz)。
+
+| 项 | 值 |
+| :--- | :--- |
+| Pages 项目 | `fuwari` |
+| Git 源 | `oishijie/fuwari`（Cloudflare GitHub App 集成） |
+| 生产分支 | `main` |
+| 构建命令 | `pnpm build` → `dist` |
+| Node 版本 | `NODE_VERSION=22`（已在 Pages 环境变量中设定） |
+
+### 日常发布：push 即部署
+
+```bash
+git add -A && git commit -m "..." && git push origin main
+```
+
+推送到 `main` 后 Cloudflare Pages 会自动 clone → `pnpm install` → `pnpm build` →
+上传 `dist`，整条流水线约 70 秒。任何其他分支的 push 会生成独立的预览部署。
+
+> 仓库内**没有** GitHub Actions 配置 —— 构建完全交给 Cloudflare，这也是刻意的选择。
+
+### 备用方案：本地构建直传
+
+需要绕开 Git 集成（比如临时回滚某次改动）时，本地构建后直接上传产物：
+
+```bash
+pnpm build
+npx -y wrangler@latest pages deploy dist --project-name=fuwari --branch=main
+```
+
+> 注意：直传**不会**解除 Git 集成，项目的 Git 源保持不变。
 
 ---
 
