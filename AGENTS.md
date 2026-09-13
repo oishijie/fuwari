@@ -42,6 +42,47 @@
 4. **i18n**：新增 UI 文案要走 `src/i18n/languages/*`，不要在组件里硬编码可见文案。
 5. **访问统计有两套并存**：`webvisoConfig`（自托管，当前启用）与 `umamiConfig`（默认关闭），二者相互独立。
 6. 代码风格由 Biome 统一，提交前跑 `pnpm lint`。
+7. **加密文章**：frontmatter 加 `password`（可选 `passwordHint`）即启用，原理与改动点见下方专节。解密成功后全局会派发 `password:decrypted` 事件，**任何依赖正文 DOM 的初始化逻辑都要监听它重跑**（TOC、图片灯箱、代码块裁剪等已接好）。
+8. **多图并排网格画廊**：正文用 `[grid]` 与 `[/grid]` 包住图片段落即自动成网格，列数 = 图片数（1~4，最高 4 列；移动端自动单列）。实现：`src/plugins/remark-image-grid.js`（remark AST 阶段重组，注册于 `astro.config.mjs` remarkPlugins **最前**）+ `src/styles/markdown.css` 的 `.image-grid`（**纯 CSS，勿改 @apply**）。灯箱无需处理（PhotoSwipe 按 `.custom-md img` 委托自动覆盖）。⚠️ 用法注意：`[grid]` 块别放正文**第一段**（`remark-excerpt` 会把首段抽成卡片摘要，网格段落抽不出文本，摘要会空）。
+
+## 加密文章（password）
+
+静态站没有服务端，加密采用「**构建时加密 → 浏览器端解密**」：正文在构建时被加密成 Base64 密文写进页面，页面源码不含任何明文；访客输入密码后由 Web Crypto 在本地解密。密码不会发往任何服务器。
+
+**用法**——文章 frontmatter 加两个字段即可：
+
+```yaml
+---
+title: 私密文章
+password: "your-password"
+passwordHint: "可选提示（会给访客看）"
+---
+```
+
+**实现（改动点）**：
+
+| 文件 | 作用 |
+| :--- | :--- |
+| `src/content/config.ts` | schema 新增 `password` / `passwordHint` |
+| `src/utils/crypto-utils.ts` | 构建时加密：AES-256-GCM + PBKDF2(SHA-256, 100000 次)，输出 `Base64(salt16 + iv12 + authTag16 + ciphertext)`。⚠️ 依赖 `node:crypto`，**只能被 `.astro` frontmatter import**，绝不可进客户端 bundle |
+| `src/components/misc/EncryptedPost.astro` | `Astro.slots.render("default")` 取渲染后 HTML → 加密 → 输出密码锁 UI + 隐藏容器；客户端 Web Crypto 解密，`sessionStorage` 按 slug 缓存密码（关闭标签页即失效） |
+| `src/pages/posts/[...slug].astro` | 有 `password` 时用 `EncryptedPost` 包住正文与许可证，隐藏评论区，并给布局传空 `headings`（防 TOC 泄露标题） |
+| `src/components/widget/TOC.astro` | 解密后从注入内容重建目录并重新初始化（监听 `password:decrypted`） |
+| `src/layouts/Layout.astro` | 解密后重跑代码块裁剪与 KaTeX 容器、重建 PhotoSwipe 灯箱 |
+| `src/pages/rss.xml.ts` | 加密文章**不在 RSS 输出正文**（否则等于绕过密码公开全文） |
+| `src/plugins/remark-excerpt.js` | 加密文章的 `excerpt` 强制置空 —— 列表页卡片的摘要是 `description \|\| excerpt`，不封堵就会把**正文第一段明文**印在首页 / 归档 / 分类卡片上 |
+
+**注意事项**：
+
+- 加密文章的**标题、描述、封面、分类 / 标签**仍是公开的（列表页、归档、RSS 里标题可见），**只有正文被加密**。
+- 安全性完全取决于密码强度：密文在页面源码里公开可下载，弱密码理论上可被暴力破解。**适合隐私保护场景，不适合高安全需求**。
+- salt / iv 是**确定性派生**（HMAC-SHA256，用 `password + slug`），目的是让相同输入永远产生相同密文 —— 这样 dev HMR 重渲染时 `sessionStorage` 缓存的密码不会失效；同时不同文章之间 salt / iv 仍不同。
+- 解密后注入的内容走 `innerHTML`，其中的 `<script>` 需手动重建（`EncryptedPost.astro` 已处理）。本项目正文通常无内联脚本，但保留该逻辑。
+- ⚠️ **加密文章请自己写 `description`**：`remark-excerpt` 已对加密文章置空摘要，所以不写 `description` 时，列表页卡片上除了标题什么都没有。`description` 本身是公开的，别写敏感内容。
+- 示例文章：`src/content/posts/encrypted-post-demo.md`（密码 `fuwari`）—— 既是功能演示，也是解密后渲染（灯箱 / 代码块复制 / 目录重建）的自检样本，验证完可删。
+- 校验工具：`.workbuddy/tools/verify-crypto-roundtrip.mjs`（加密→浏览器端解密往返，含错误密码拒绝 / 确定性校验）、`.workbuddy/tools/verify-encrypted-post.mjs`（`.astro` 编译 + 内联脚本 TS 语法）、`.workbuddy/tools/verify-encrypted-excerpt.mjs`（加密文章摘要封堵，3 用例）。
+
+## 评论后端（workers/comments/）
 
 ## 注意事项与已知风险
 

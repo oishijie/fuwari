@@ -13,6 +13,9 @@ const postsCollection = defineCollection({
 		lang: z.string().optional().default(""),
 		order: z.number().default(0), // 新增字段：0=默认, 1=置顶, -1=置底
 		hidden: z.boolean().default(false), // Jant 式 Hidden from Latest：不进首页时间线和 RSS，但仍出现在归档/分类/Now 页
+		/* 加密文章（借鉴「夏夜流萤」方案）：构建时把正文加密成密文写入页面，访客输密码后浏览器端解密 */
+		password: z.string().optional().default(""),
+		passwordHint: z.string().optional().default(""),
 
 		/* For internal use */
 		prevTitle: z.string().default(""),

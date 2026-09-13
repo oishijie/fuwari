@@ -10,6 +10,7 @@ import { getDir, getPostUrlBySlug } from "@utils/url-utils";
 import { Icon } from "astro-icon/components";
 import { licenseConfig } from "src/config";
 import Comments from "../../components/misc/Comments.astro";
+import EncryptedPost from "../../components/misc/EncryptedPost.astro";
 import ImageWrapper from "../../components/misc/ImageWrapper.astro";
 import PostMetadata from "../../components/PostMeta.astro";
 import { profileConfig, siteConfig } from "../../config";
@@ -116,13 +117,24 @@ const jsonLd = {
                 <ImageWrapper id="post-cover" src={entry.data.image} basePath={path.join("content/posts/", getDir(entry.id))} class="mb-8 rounded-xl banner-container onload-animation h-56 md:h-72"/>
             }
 
-            <Markdown class="mb-6 markdown-content onload-animation">
-                <Content />
-            </Markdown>
+            {entry.data.password ? (
+                <EncryptedPost password={entry.data.password} slug={entry.slug} hint={entry.data.passwordHint} class="onload-animation">
+                    <Markdown class="mb-6 markdown-content">
+                        <Content />
+                    </Markdown>
+                    {licenseConfig.enable && <License title={entry.data.title} slug={entry.slug} pubDate={entry.data.published} class="mb-6 rounded-xl license-container"></License>}
+                </EncryptedPost>
+            ) : (
+                <>
+                    <Markdown class="mb-6 markdown-content onload-animation">
+                        <Content />
+                    </Markdown>
 
-            {licenseConfig.enable && <License title={entry.data.title} slug={entry.slug} pubDate={entry.data.published} class="mb-6 rounded-xl license-container onload-animation"></License>}
+                    {licenseConfig.enable && <License title={entry.data.title} slug={entry.slug} pubDate={entry.data.published} class="mb-6 rounded-xl license-container onload-animation"></License>}
+                </>
+            )}
 
-            <Comments />
+            {!entry.data.password && <Comments />}
 
         </div>
     </div>

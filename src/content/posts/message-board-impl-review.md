@@ -1,12 +1,12 @@
 ---
 title: 转载｜从 Giscus 到自建留言板：与我的方案对比
-date: 2026-09-13
+published: 2026-09-13
 category: 博客魔改
 tags:
   - 评论系统
   - 自建后端
   - Cloudflare
-image: https://images.unsplash.com/photo-1499750310107-5fef28a66655?w=1200&q=80
+image: 'https://images.unsplash.com/photo-1587560699334-cc4ff634909a?q=80&w=1200&h=800&auto=format&fit=crop'
 ---
 
 > **转载声明**：本文主体整理自白咲雫《繁琐小事与留言板的实现教程》（2026-01-27，<https://blog.shiro.team/posts/dev-log/message-board-impl/>）。原文版权归原作者所有，此处为学习目的作中文整理与二次评注，**非逐字翻译**；文中的代码片段、接口设计与数值均引自原文。文中「本站 / 留心博客」指笔者自己的部署（Cloudflare Workers + D1 自建评论），与原文作者方案并列对照。

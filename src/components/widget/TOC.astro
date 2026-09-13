@@ -32,7 +32,7 @@ let heading1Count = 1;
 const maxLevel = siteConfig.toc.depth;
 ---
 {isPostsRoute &&
-<table-of-contents class:list={[className, "group"]}>
+<table-of-contents class:list={[className, "group"]} data-toc-depth={maxLevel}>
     {headings.filter((heading) => heading.depth < minDepth + maxLevel).map((heading) =>
             <a href={`#${heading.slug}`} class="px-2 flex gap-2 relative transition w-full min-h-9 rounded-xl
         hover:bg-[var(--toc-btn-hover)] active:bg-[var(--toc-btn-active)] py-2
@@ -261,6 +261,93 @@ class TableOfContents extends HTMLElement {
         this.tocEl?.removeEventListener("click", this.handleAnchorClick);
     };
 }
+
+/* ===== 加密文章：解密后重建目录 =====
+ * 加密文章 SSR 时 headings 传空（避免在密文页面里泄露标题），正文在解密后才注入 DOM，
+ * 此时需要从解密内容里重新扫描标题、生成目录项，并重新初始化本自定义元素。
+ */
+function escapeHtml(s: string): string {
+	const map: Record<string, string> = {
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#39;",
+	};
+	return s.replace(/[&<>"']/g, (c) => map[c]);
+}
+
+function collectHeadings(container: HTMLElement) {
+	const out: { depth: number; slug: string; text: string }[] = [];
+	container.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((node) => {
+		if (!node.id) return;
+		const clone = node.cloneNode(true) as HTMLElement;
+		clone.querySelectorAll("a").forEach((a) => a.remove());
+		const text = (clone.textContent || "").trim();
+		if (!text) return;
+		out.push({ depth: Number(node.tagName[1]), slug: node.id, text });
+	});
+	return out;
+}
+
+function buildTocHtml(headings: { depth: number; slug: string; text: string }[], maxLevel: number) {
+	let minDepth = 10;
+	for (const h of headings) minDepth = Math.min(minDepth, h.depth);
+	let h1Count = 1;
+	return headings
+		.filter((h) => h.depth < minDepth + maxLevel)
+		.map((h) => {
+			let badge: string;
+			if (h.depth === minDepth) {
+				badge = `<div class="transition w-5 h-5 shrink-0 rounded-lg text-xs flex items-center justify-center font-bold bg-[var(--toc-badge-bg)] text-[var(--btn-content)]">${h1Count++}</div>`;
+			} else if (h.depth === minDepth + 1) {
+				badge = `<div class="transition w-5 h-5 shrink-0 rounded-lg ml-4 flex items-center justify-center"><div class="transition w-2 h-2 rounded-[0.1875rem] bg-[var(--toc-badge-bg)]"></div></div>`;
+			} else {
+				badge = `<div class="transition w-5 h-5 shrink-0 rounded-lg ml-8 flex items-center justify-center"><div class="transition w-1.5 h-1.5 rounded-sm bg-black/5 dark:bg-white/10"></div></div>`;
+			}
+			const textCls = h.depth <= minDepth + 1 ? "text-50" : "text-30";
+			return `<a href="#${encodeURI(h.slug)}" class="px-2 flex gap-2 relative transition w-full min-h-9 rounded-xl hover:bg-[var(--toc-btn-hover)] active:bg-[var(--toc-btn-active)] py-2">${badge}<div class="transition text-sm ${textCls}">${escapeHtml(h.text)}</div></a>`;
+		})
+		.join("");
+}
+
+function rebuildToc() {
+	const el = document.querySelector("table-of-contents") as TableOfContents | null;
+	const container = document.getElementById("encrypted-content");
+	if (!el || !container) return;
+	const headings = collectHeadings(container);
+	if (!headings.length) return;
+	const maxLevel = Number((el as HTMLElement).dataset.tocDepth) || 2;
+	try {
+		el.disconnectedCallback();
+	} catch {
+		/* ignore */
+	}
+	el.innerHTML =
+		buildTocHtml(headings, maxLevel) +
+		'<div id="active-indicator" style="opacity: 0" class="-z-10 absolute bg-[var(--toc-btn-hover)] left-0 right-0 rounded-xl transition-all group-hover:bg-transparent border-2 border-[var(--toc-btn-hover)] group-hover:border-[var(--toc-btn-active)] border-dashed"></div>';
+	el.init();
+}
+
+document.addEventListener("password:decrypted", rebuildToc);
+
+/* ===== 加密文章：手动锁定后清空目录 =====
+ * 目录项是从解密后的正文里抽取出来的。锁定会把正文抹掉，若不清目录，
+ * 侧栏仍挂着各级标题 —— 等于锁了门却把目录留在门上。
+ */
+function clearToc() {
+	const el = document.querySelector("table-of-contents") as TableOfContents | null;
+	if (!el) return;
+	try {
+		el.disconnectedCallback();
+	} catch {
+		/* ignore */
+	}
+	el.innerHTML =
+		'<div id="active-indicator" style="opacity: 0" class="hidden"></div>';
+}
+
+document.addEventListener("password:locked", clearToc);
 
 if (!customElements.get("table-of-contents")) {
     customElements.define("table-of-contents", TableOfContents);

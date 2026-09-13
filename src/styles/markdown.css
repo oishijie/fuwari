@@ -136,5 +136,72 @@
         overflow-x: auto;
         margin: 1em 0;
     }
-    
+
+}
+
+/* ===== 多图并排网格画廊（remark-image-grid 插件输出） =====
+ * 由 [grid]…[/grid] 标记生成 div.image-grid.image-grid-N（N=1~4 列）。
+ * 注意：本文件独立走 Tailwind/PostCSS 编译，这里刻意用纯 CSS 而非 @apply，
+ * 规避跨文件类解析问题（见 .btn-regular-dark / .expand-animation 先例）。
+ * 灯箱无需额外处理：PhotoSwipe 以 ".custom-md img" 委托绑定，网格图自动覆盖。
+ */
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    align-items: stretch;
+}
+
+.image-grid-1 {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.image-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.image-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* 网格项（remark-rehype 会把图片段落渲染为 <p><img></p>）。
+ * ⚠️ 这里绝不能写 height: 100% —— p 的高度依赖行高、行高又依赖图片高度，
+ * 双层百分比互相参照是循环依赖，Chromium 会把段落高度解析成 0，
+ * 图片从塌掉的盒子里溢出绘制，视觉上盖住相邻文字（2026-09-13 实测踩坑）。
+ * 等高拉伸交给 align-items: stretch，行高由 img 的 aspect-ratio 锚定。 */
+.image-grid > p {
+    margin: 0;
+}
+
+.image-grid > p > img {
+    display: block; /* 消除 inline 图片的 baseline 空隙 */
+    width: 100%; /* 唯一尺寸来源：列宽。高度一律由 aspect-ratio 推出，禁止写 height:100%（循环依赖） */
+    min-width: 0;
+    aspect-ratio: 16 / 10; /* 行高锚点：列宽 × 0.625，杜绝百分比循环 */
+    object-fit: cover; /* 中心裁剪保证同排等高、不形变 */
+    border-radius: 0.75rem;
+    max-height: 30rem; /* 防极端竖图把整排撑爆（cover 裁剪，不形变） */
+}
+
+/* 单图网格：保持原比例，不套横幅裁剪 */
+.image-grid-1 > p > img {
+    height: auto;
+    aspect-ratio: auto;
+}
+
+/* 移动端统一退回单列，恢复图片原始比例 */
+@media (max-width: 767px) {
+    .image-grid,
+    .image-grid-1,
+    .image-grid-3,
+    .image-grid-4 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .image-grid > p > img {
+        height: auto;
+        aspect-ratio: auto; /* height:auto 时 aspect-ratio 仍会按宽度算高，必须一并还原 */
+        max-height: none;
+    }
 }

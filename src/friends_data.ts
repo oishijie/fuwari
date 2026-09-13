@@ -44,6 +44,12 @@ export const friends: Friend[] = [
 		avatar: "https://mobius.blog/favicon.ico",
 		description: "写作，一场自我悖驳的旅程",
 	},
+	{
+		name: "夏夜流萤",
+		url: "https://blog.cuteleaf.cn/",
+		avatar: "https://blog.cuteleaf.cn/favicon.ico",
+		description: "飞萤之火自无梦的长夜亮起，绽放在终竟的明天",
+	},
 	// ---- 博客组织 / 聚合站 ----
 	{
 		name: "开往",

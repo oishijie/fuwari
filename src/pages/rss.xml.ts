@@ -27,14 +27,18 @@ export async function GET(context: APIContext) {
 			const content =
 				typeof post.body === "string" ? post.body : String(post.body || "");
 			const cleanedContent = stripInvalidXmlChars(content);
+			// 加密文章不在 RSS 里输出正文（只留标题与描述），否则等于绕过密码把全文公开
+			const isEncrypted = !!post.data.password;
 			return {
 				title: post.data.title,
 				pubDate: post.data.published,
 				description: post.data.description || "",
 				link: url(`/posts/${post.slug}/`),
-				content: sanitizeHtml(parser.render(cleanedContent), {
-					allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img"]),
-				}),
+				content: isEncrypted
+					? ""
+					: sanitizeHtml(parser.render(cleanedContent), {
+							allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img"]),
+						}),
 			};
 		}),
 		customData: `<language>${siteConfig.lang}</language>`,

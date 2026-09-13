@@ -1,0 +1,287 @@
+---
+import { encryptContent } from "@utils/crypto-utils";
+
+interface Props {
+	password: string;
+	slug: string;
+	hint?: string;
+	class?: string;
+}
+
+const { password, slug, hint = "", class: className = "" } = Astro.props;
+
+// 构建时把 slot（文章正文 + 许可证等）渲染成 HTML 字符串，然后加密。
+// 最终页面里只存在 Base64 密文，不含任何明文；密码不会发往任何服务器。
+const rawHtml = await Astro.slots.render("default");
+const encryptedData = encryptContent(rawHtml, password, slug);
+---
+
+<div
+	id="encrypted-post"
+	class:list={[className]}
+	data-encrypted={encryptedData}
+	data-slug={slug}
+	data-hint={hint}
+>
+	<!-- 锁定态：密码输入 UI -->
+	<div id="encrypted-lock" class="flex flex-col items-center justify-center text-center px-4 py-12">
+		<div class="transition w-16 h-16 rounded-full bg-[var(--btn-regular-bg)] flex items-center justify-center mb-4 text-[var(--primary)]">
+			<svg xmlns="http://www.w3.org/2000/svg" height="30" width="30" viewBox="0 -960 960 960" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm240-200q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80Z"/></svg>
+		</div>
+		<div class="text-lg font-bold text-black/85 dark:text-white/85 mb-1">这是一篇加密文章</div>
+		<div class="text-sm text-black/50 dark:text-white/50 mb-6">需要密码才能查看，请输入访问密码</div>
+
+		<form id="enc-form" class="flex w-full max-w-xs gap-2" autocomplete="off">
+			<input
+				id="enc-pwd"
+				type="password"
+				class="flex-1 min-w-0 h-10 px-3 rounded-xl bg-[var(--btn-regular-bg)] text-black/85 dark:text-white/85 placeholder:text-black/30 dark:placeholder:text-white/30 outline-none transition focus:ring-2 focus:ring-[var(--primary)]"
+				placeholder="请输入密码"
+				autocomplete="current-password"
+				required
+			/>
+			<button
+				id="enc-submit"
+				type="submit"
+				class="shrink-0 h-10 px-4 rounded-xl bg-[var(--primary)] text-white font-bold transition active:scale-95"
+			>解锁</button>
+		</form>
+
+		<div id="enc-hint" class="mt-3 text-xs text-black/45 dark:text-white/45" hidden></div>
+		<div id="enc-status" class="mt-2 text-sm min-h-[1.25rem] text-black/60 dark:text-white/60" role="status" aria-live="polite"></div>
+	</div>
+
+	<!-- 解密后的正文注入到这里（默认隐藏） -->
+	<div id="encrypted-content" class="hidden"></div>
+
+	<!-- 解锁后出现的「锁定本文」按钮（外层只挂 hidden，flex 交给内层，避免 display 工具类互相覆盖） -->
+	<div id="enc-actions" class="hidden mt-10">
+		<div class="flex justify-center">
+			<button
+				id="enc-lock"
+				type="button"
+				class="transition flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--btn-regular-bg)] text-black/60 dark:text-white/60 hover:text-[var(--primary)] hover:bg-[var(--btn-plain-bg-hover)] active:scale-95"
+				title="清除本页缓存的密码并重新上锁"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm240-200q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80Z"/></svg>
+				锁定本文
+			</button>
+		</div>
+	</div>
+</div>
+
+<style>
+	#enc-status.is-error {
+		color: #ef4444;
+	}
+</style>
+
+<script>
+	/**
+	 * 加密文章客户端解密（借鉴「夏夜流萤」方案，并适配 fuwari 的 swup 无刷新导航）。
+	 *
+	 * 与原文的差异：fuwari 用 Swup 只替换 `main` / `#toc`，本脚本在 swup 切页后**不会重新执行**，
+	 * 因此把逻辑写成「幂等的全局初始化 + 事件钩子」：脚本只注册监听，每次 page:view 重新查找
+	 * `#encrypted-post`（新 DOM）并绑定，靠 dataset.bound 防止重复绑定。
+	 */
+
+	const KEY_PREFIX = "pw:";
+
+	function b64ToBytes(b64: string): Uint8Array {
+		const bin = atob(b64);
+		const out = new Uint8Array(bin.length);
+		for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+		return out;
+	}
+
+	async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+		const keyMaterial = await crypto.subtle.importKey(
+			"raw",
+			new TextEncoder().encode(password),
+			"PBKDF2",
+			false,
+			["deriveKey"],
+		);
+		return crypto.subtle.deriveKey(
+			{ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+			keyMaterial,
+			{ name: "AES-GCM", length: 256 },
+			false,
+			["decrypt"],
+		);
+	}
+
+	async function decrypt(encBase64: string, password: string): Promise<string> {
+		const raw = b64ToBytes(encBase64);
+		const salt = raw.slice(0, 16);
+		const iv = raw.slice(16, 28);
+		const authTag = raw.slice(28, 44);
+		const ciphertext = raw.slice(44);
+		// AES-GCM 要求把 authTag 拼到密文尾部
+		const combined = new Uint8Array(ciphertext.length + authTag.length);
+		combined.set(ciphertext, 0);
+		combined.set(authTag, ciphertext.length);
+		const key = await deriveKey(password, salt);
+		const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, combined);
+		return new TextDecoder().decode(plain);
+	}
+
+	/** innerHTML 注入的 <script> 不会执行，需手动重建（本项目正文通常无内联脚本，保留以兼容） */
+	function reviveScripts(container: HTMLElement) {
+		container.querySelectorAll("script").forEach((node) => {
+			const s = document.createElement("script");
+			for (const attr of Array.from(node.attributes)) s.setAttribute(attr.name, attr.value);
+			s.textContent = node.textContent;
+			node.parentNode?.replaceChild(s, node);
+		});
+	}
+
+function unlock(root: HTMLElement, html: string) {
+	const content = root.querySelector<HTMLElement>("#encrypted-content");
+	const lockEl = root.querySelector<HTMLElement>("#encrypted-lock");
+	const actions = root.querySelector<HTMLElement>("#enc-actions");
+	if (!content) return;
+	content.innerHTML = html;
+	content.classList.remove("hidden");
+	lockEl?.classList.add("hidden");
+	actions?.classList.remove("hidden");
+	root.setAttribute("data-unlocked", "true");
+	reviveScripts(content);
+		// 通知 TOC / 灯箱 / 代码块裁剪 / KaTeX 等重新初始化
+		window.setTimeout(() => {
+			document.dispatchEvent(
+				new CustomEvent("password:decrypted", { detail: { slug: root.dataset.slug } }),
+			);
+		}, 100);
+	}
+
+	/**
+ * 手动锁定：清掉 sessionStorage 里的密码缓存与已注入的明文，把界面退回密码输入态。
+ * 用途：看完就锁回去（借电脑给别人、公用机器），不必关标签页。
+ * 同时派发 password:locked，让 TOC 等「从正文里抽取过信息」的模块一并清空。
+ */
+function lock(root: HTMLElement) {
+	const content = root.querySelector<HTMLElement>("#encrypted-content");
+	const lockEl = root.querySelector<HTMLElement>("#encrypted-lock");
+	const actions = root.querySelector<HTMLElement>("#enc-actions");
+	const input = root.querySelector<HTMLInputElement>("#enc-pwd");
+	const status = root.querySelector<HTMLElement>("#enc-status");
+
+	try {
+		sessionStorage.removeItem(KEY_PREFIX + (root.dataset.slug || ""));
+	} catch {
+		/* ignore */
+	}
+
+	if (content) {
+		content.innerHTML = ""; // 关键：把明文从 DOM 里抹掉，否则「锁定」只是视觉上的
+		content.classList.add("hidden");
+	}
+	actions?.classList.add("hidden");
+	lockEl?.classList.remove("hidden");
+	root.removeAttribute("data-unlocked");
+
+	if (status) {
+		status.textContent = "";
+		status.classList.remove("is-error");
+	}
+	if (input) {
+		input.value = "";
+		input.focus();
+	}
+
+	document.dispatchEvent(
+		new CustomEvent("password:locked", { detail: { slug: root.dataset.slug } }),
+	);
+}
+
+async function attempt(root: HTMLElement, password: string, silent: boolean): Promise<boolean> {
+		const status = root.querySelector<HTMLElement>("#enc-status");
+		const cacheKey = KEY_PREFIX + (root.dataset.slug || "");
+		if (!silent && status) {
+			status.textContent = "解密中…";
+			status.classList.remove("is-error");
+		}
+		try {
+			const html = await decrypt(root.dataset.encrypted || "", password);
+			try {
+				sessionStorage.setItem(cacheKey, password);
+			} catch {
+				/* 隐私模式忽略 */
+			}
+			if (status) {
+				status.textContent = "";
+				status.classList.remove("is-error");
+			}
+			unlock(root, html);
+			return true;
+		} catch {
+			// 密码错误 / 密文与密码不匹配（如文章密码被改过）→ 清掉缓存
+			try {
+				sessionStorage.removeItem(cacheKey);
+			} catch {
+				/* ignore */
+			}
+			if (!silent && status) {
+				status.textContent = "密码错误，请重试";
+				status.classList.add("is-error");
+			}
+			return false;
+		}
+	}
+
+	function initRoot(root: HTMLElement) {
+		if (root.dataset.bound === "1") return;
+		root.dataset.bound = "1";
+
+		const form = root.querySelector<HTMLFormElement>("#enc-form");
+		const input = root.querySelector<HTMLInputElement>("#enc-pwd");
+		const hintEl = root.querySelector<HTMLElement>("#enc-hint");
+
+		const hintText = root.dataset.hint || "";
+		if (hintText && hintEl) {
+			hintEl.textContent = `提示：${hintText}`;
+			hintEl.hidden = false;
+		}
+
+		form?.addEventListener("submit", (e) => {
+			e.preventDefault();
+			const pwd = input?.value ?? "";
+			if (!pwd) {
+				input?.focus();
+				return;
+			}
+			void attempt(root, pwd, false);
+		});
+
+		// 解锁后出现的「锁定本文」按钮
+		root
+			.querySelector<HTMLButtonElement>("#enc-lock")
+			?.addEventListener("click", () => {
+				lock(root);
+			});
+
+		// 同一标签页会话内自动解锁（关闭浏览器即失效）
+		let cached: string | null = null;
+		try {
+			cached = sessionStorage.getItem(KEY_PREFIX + (root.dataset.slug || ""));
+		} catch {
+			/* ignore */
+		}
+		if (cached) void attempt(root, cached, true);
+	}
+
+	function boot() {
+		const root = document.querySelector<HTMLElement>("#encrypted-post");
+		if (root) initRoot(root);
+	}
+
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", boot);
+	} else {
+		boot();
+	}
+	document.addEventListener("astro:page-load", boot);
+	document.addEventListener("swup:page:view", boot);
+	document.addEventListener("swup:content:replace", boot);
+</script>

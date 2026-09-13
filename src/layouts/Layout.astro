@@ -604,4 +604,14 @@ if (window.swup) {
 } else {
 	document.addEventListener("swup:enable", setup)
 }
+
+/* 加密文章解密后：注入的图片不在初始 DOM 中，重建灯箱以重新绑定点击 */
+document.addEventListener("password:decrypted", () => {
+	try {
+		lightbox?.destroy?.()
+	} catch {
+		/* ignore */
+	}
+	createPhotoSwipe()
+})
 </script>
