@@ -298,3 +298,5 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx wrangler deploy
 ## 相关阅读
 
 - [右侧悬浮工具栏：回顶部、随机一篇、目录抽屉与评论跳转是怎么做的](/posts/floating-toolbar/)：右下角工具栏的"跳评论"按钮，直达的就是这套自建评论区。
+
+- [转载｜从 Giscus 到自建留言板：与我的方案对比](/posts/message-board-impl-review/)：另一份同题方案（Vercel KV + Astro API 路由）的对照，以及本站 D1 + Worker 的取舍。
