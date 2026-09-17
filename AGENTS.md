@@ -129,6 +129,8 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 | 缓存 | D1 表 `ai_summaries`，key = 正文规范化后的 SHA-256 |
 | 限额 | D1 表 `ai_summary_quota`，同一 IP 每天 30 次「真实生成」（命中缓存不计数） |
 | 模型 | Workers AI，`wrangler.jsonc` 的 `AI_MODEL`，默认 `@cf/meta/llama-3.1-8b-instruct-fp8-fast` |
+| 长度控制 | 提示词要求「两三句话、≤120 字」+ `max_tokens: 200` 双保险；`trimSummary()` 超长时回退到最后一个句末标点收尾，**绝不硬切半句话** |
+| 缓存失效 | 缓存 key = `sha256(AI_PROMPT_VERSION + 正文)`。**改提示词后必须递增 `AI_PROMPT_VERSION`**，否则同篇文章会一直命中旧摘要 |
 
 **首次启用比评论多两步**（D1 建表 + 重新部署让 Worker 拿到 AI 绑定）：
 
