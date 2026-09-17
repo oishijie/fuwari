@@ -49,8 +49,8 @@ const LIMITS = {
 const AI_LIMITS = {
 	/** 送去模型的最大正文字数（超出截断，控制 token 消耗） */
 	content: 8000,
-	/** 返回给前端的摘要字数上限 */
-	summaryChars: 200,
+	/** 摘要字数安全网：超过才在句末标点处收尾。目标长度由提示词 + max_tokens 控制，这里留足余量 */
+	summaryChars: 170,
 	/** 同一 IP 每天最多触发的「真实生成」次数（命中缓存不计数） */
 	dailyPerIp: 30,
 };
@@ -58,13 +58,35 @@ const AI_LIMITS = {
 /** 默认摘要模型：Workers AI 免费额度内可用，可用 wrangler.jsonc 的 AI_MODEL 覆盖 */
 const DEFAULT_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
 
-/** 摘要用系统提示词：约束成「单行、不超过 200 字、不带链接」 */
+/** 提示词版本：参与缓存 key 计算。改提示词时递增，旧摘要即自动失效 */
+const AI_PROMPT_VERSION = "v2";
+
+/** 摘要用系统提示词：约束成「单行、约 100 字、不带链接」 */
 const AI_SYSTEM_PROMPT =
-	"你是一个文章摘要工具。请用中文简明介绍用户发来的文章讲了什么，" +
-	"不要换行，不要超过 200 字，不要包含链接和代码，不要提及用户，" +
+	"你是一个文章摘要工具。请用中文概括用户发来的文章讲了什么。" +
+	"只写两三句话，总共不超过 120 字，这是硬性限制。" +
+	"必须以完整的句子收尾（以句号结束），绝不允许中途断掉。" +
+	"不要换行，不要分点，不要包含链接和代码，不要提及用户，" +
 	"不要提出建议或补充，直接输出摘要正文。";
 
 // ---------------------------------------------------------------- 工具函数
+
+/** 摘要收尾：未超限原样返回；超限则回退到最后一个句末标点，避免切出半句话 */
+function trimSummary(raw: string): string {
+	const text = raw.replace(/\s*\n+\s*/g, " ").trim();
+	if (text.length <= AI_LIMITS.summaryChars) return text;
+
+	const head = text.slice(0, AI_LIMITS.summaryChars);
+	const cut = Math.max(
+		head.lastIndexOf("。"),
+		head.lastIndexOf("！"),
+		head.lastIndexOf("？"),
+		head.lastIndexOf("；"),
+	);
+	// 句末标点在合理位置才用它收尾，否则退而求其次去掉尾部残句并加省略号
+	if (cut >= AI_LIMITS.summaryChars * 0.5) return head.slice(0, cut + 1);
+	return head.replace(/[，、,;；:：\s]+$/, "") + "…";
+}
 
 function parseAllowedOrigins(env: Env): string[] {
 	return (env.ALLOWED_ORIGINS ?? "")
@@ -184,7 +206,7 @@ async function generateSummary(req: Request, env: Env, cors: Headers): Promise<R
 	const slug = normalizeSlug(body.slug);
 	if (content.length < 80) return json({ error: "正文太短，无需摘要" }, 400, cors);
 
-	const hash = await sha256Hex(content);
+	const hash = await sha256Hex(AI_PROMPT_VERSION + "\n" + content);
 
 	const cached = await env.DB.prepare(`SELECT summary FROM ai_summaries WHERE hash = ?`)
 		.bind(hash)
@@ -213,11 +235,11 @@ async function generateSummary(req: Request, env: Env, cors: Headers): Promise<R
 				{ role: "system", content: AI_SYSTEM_PROMPT },
 				{ role: "user", content },
 			],
-			max_tokens: 512,
+			max_tokens: 200,
 		});
 		const raw =
 			typeof out === "string" ? out : String((out as { response?: string })?.response ?? "");
-		summary = raw.replace(/\s*\n+\s*/g, " ").trim().slice(0, AI_LIMITS.summaryChars);
+		summary = trimSummary(raw);
 	} catch (err) {
 		console.error("[blog-comments] AI 摘要生成失败", err);
 		return json({ error: "摘要生成失败，请稍后重试" }, 502, cors);
