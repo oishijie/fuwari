@@ -132,6 +132,12 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 | 长度控制 | 提示词要求「两三句话、≤120 字」+ `max_tokens: 200` 双保险；`trimSummary()` 超长时回退到最后一个句末标点收尾，**绝不硬切半句话** |
 | 缓存失效 | 缓存 key = `sha256(AI_PROMPT_VERSION + 正文)`。**改提示词后必须递增 `AI_PROMPT_VERSION`**，否则同篇文章会一直命中旧摘要 |
 
+**🔴 客户端脚本执行时机（踩过的坑，2026-09-17）**：Astro 对带 `define:vars` 的 `<script>` 会输出成**内联普通脚本**（没有 `type="module"`、不 defer），**同步执行**。摘要卡挂在正文**之前**，所以整页加载/刷新时脚本跑起来的那一刻正文还没解析 → `extractContent()` 返回空串 → 被当成「正文过短」→ `section.remove()` 把卡片删掉。表现就是**「从首页点进文章正常，F5 刷新后摘要消失」**。
+
+修法两条：① `document.readyState === "loading"` 时把首次初始化延后到 `DOMContentLoaded`；② initOne 里「找不到 `#post-container .markdown-content` 且 DOM 仍在加载」时直接返回、不下删除结论（`dataset.aiInit` 置位要挪到确认可判定之后，否则不会重试）。
+
+⚠️ **Swup 换页不受影响的原因**：innerHTML 插入的脚本不会执行，换页实际由 `swup:page:view` / `astro:page-load` 事件兜住——这正是「点进来正常、刷新才炸」的由来。**凡是挂在正文之前、且要读正文 DOM 的客户端组件都适用此条。**
+
 **首次启用比评论多两步**（D1 建表 + 重新部署让 Worker 拿到 AI 绑定）：
 
 ```bash

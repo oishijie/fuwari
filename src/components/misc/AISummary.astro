@@ -108,14 +108,22 @@ const ui = {
 
 		function initOne(section) {
 			if (section.dataset.aiInit === "1") return;
-			section.dataset.aiInit = "1";
 
 			var text = section.querySelector("[data-ai-summary-text]");
 			var retry = section.querySelector("[data-ai-summary-retry]");
 			if (!text || !API) {
+				section.dataset.aiInit = "1";
 				section.remove();
 				return;
 			}
+
+			// 整页加载的极早期：本脚本是内联普通脚本（Astro 对 define:vars 的输出），
+			// 同步执行时正文还没被解析出来。此刻不能判定「没有正文」，
+			// 直接返回，等 DOMContentLoaded / swup:page:view 重新进来
+			if (!document.querySelector("#post-container .markdown-content") && document.readyState === "loading") {
+				return;
+			}
+			section.dataset.aiInit = "1";
 
 			var content = extractContent();
 			// 正文过短，或落在加密文章上（正文是密文、没解密），都不展示摘要
@@ -178,7 +186,14 @@ const ui = {
 			for (var i = 0; i < list.length; i++) initOne(list[i]);
 		}
 
-		initAll();
+		// 整页加载时本脚本同步执行（内置普通脚本），此刻正文尚未解析 —— 必须等 DOM 就绪，
+		// 否则 extractContent() 取到空串，卡片会被误删。（Swup 换页不受影响：
+		// innerHTML 插入的脚本不执行，实际由下面的事件监听兜住）
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", initAll);
+		} else {
+			initAll();
+		}
 		// Swup 无刷新换页后需要重新初始化（dataset 标记保证幂等）
 		document.addEventListener("astro:page-load", initAll);
 		document.addEventListener("swup:page:view", initAll);
