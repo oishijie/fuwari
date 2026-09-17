@@ -93,6 +93,7 @@ export const commentConfig: CommentConfig = {
 | POST | `/api/comments` | 发表评论 |
 | DELETE | `/api/comments/:id` | 删除评论（需 `Authorization: Bearer <ADMIN_TOKEN>`） |
 | GET | `/health` | 健康检查 |
+| POST | `/api/summary` | 生成 / 读取文章 AI 摘要（Workers AI + D1 缓存） |
 
 发表评论的请求体：
 
@@ -115,6 +116,15 @@ export const commentConfig: CommentConfig = {
 - 存储为扁平的 `parent_id` 列（非嵌套树），前端按「回复了 @某某」渲染引用条。
 - **级联删除**：删除任一评论会连同其整个回复子树一起删除（递归 CTE 实现），不会留下孤儿评论。
 - 迁移脚本 `migrate-reply.sql` 已在 2026-09-12 执行，从零重建时 `schema.sql` 已包含该列，无需再跑迁移。
+
+### AI 摘要（2026-09-17 新增）
+
+- 请求体 `{ "content": "正文纯文本（≤8000 字）", "slug": "/posts/xxx/" }`，响应 `{ "summary": "...", "cached": true|false }`。
+- 缓存键是**规范化正文的 SHA-256**（抹零宽字符、折叠空白），正文不变就不会重复消耗模型额度。
+- 生成限额：同一 IP 每天 30 次（命中缓存不计数），记在 `ai_summary_quota` 表。
+- 模型由 `wrangler.jsonc` 的 `AI_MODEL` 指定，走 Workers AI binding `AI`；需在 Cloudflare 后台为账号开通 Workers AI（免费 10000 neurons/天，无需信用卡）。
+- 建表命令：`npx wrangler d1 execute blog-comments --remote --file=./migrate-ai-summary.sql`
+- 首次调用若返回「服务端未启用 Workers AI」，说明 `ai` binding 没生效 —— 检查账号是否已开通并重新部署。
 
 ---
 

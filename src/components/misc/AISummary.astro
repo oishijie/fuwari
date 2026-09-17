@@ -1,0 +1,186 @@
+---
+import { Icon } from "astro-icon/components";
+import I18nKey from "@i18n/i18nKey";
+import { i18n } from "@i18n/translation";
+import { aiSummaryConfig } from "../../config";
+
+interface Props {
+	slug?: string;
+	enable?: boolean;
+	apiBase?: string;
+	class?: string;
+}
+
+const {
+	slug = "",
+	enable = aiSummaryConfig.enable,
+	apiBase = aiSummaryConfig.apiBase,
+} = Astro.props;
+const className = Astro.props.class ?? "";
+
+const ui = {
+	title: i18n(I18nKey.aiSummaryTitle),
+	thinking: i18n(I18nKey.aiSummaryThinking),
+	failed: i18n(I18nKey.aiSummaryFailed),
+	retry: i18n(I18nKey.aiSummaryRetry),
+};
+---
+
+{enable && (
+	<section
+		data-ai-summary
+		data-slug={slug}
+		class:list={[
+			"ai-summary relative transition overflow-hidden bg-[var(--license-block-bg)] rounded-xl py-5 px-6",
+			className,
+		]}
+	>
+		<div class="flex items-center gap-2 mb-2">
+			<Icon name="material-symbols:auto-awesome-rounded" class="text-[var(--primary)] text-lg shrink-0" />
+			<span class="text-sm font-bold text-[var(--primary)]">{ui.title}</span>
+			<button
+				type="button"
+				data-ai-summary-retry
+				hidden
+				class="ml-auto text-xs transition text-black/35 dark:text-white/35 hover:text-[var(--primary)] dark:hover:text-[var(--primary)]"
+			>{ui.retry}</button>
+		</div>
+		<div data-ai-summary-body class="transition text-sm md:text-base leading-relaxed min-h-[1.5em]">
+			<span data-ai-summary-text class="text-black/30 dark:text-white/30">{ui.thinking}</span>
+		</div>
+	</section>
+)}
+
+<script define:vars={{ ui, apiBase }}>
+	(function () {
+		var API = String(apiBase || "").replace(/\/+$/, "");
+		var DIM = "text-black/30 dark:text-white/30";
+		var FULL = "text-black/75 dark:text-white/75";
+
+		// 取正文纯文本：剔除代码块 / 公式 / SVG 等噪声，避免污染摘要
+		function extractContent() {
+			var box = document.querySelector("#post-container .markdown-content");
+			if (!box) return "";
+			var clone = box.cloneNode(true);
+			var drop = clone.querySelectorAll(
+				"pre, code, .expressive-code, .katex, .katex-display, svg, script, style, .sr-only, [data-ai-summary]",
+			);
+			for (var i = 0; i < drop.length; i++) drop[i].remove();
+			return (clone.textContent || "").replace(/\s+/g, " ").trim();
+		}
+
+		function store(key, val) {
+			try {
+				sessionStorage.setItem(key, val);
+			} catch (e) {
+				/* 隐私模式下忽略 */
+			}
+		}
+		function read(key) {
+			try {
+				return sessionStorage.getItem(key);
+			} catch (e) {
+				return null;
+			}
+		}
+
+		// 内容指纹：每 7 个字符采样一次做 djb2，配合长度足以区分不同版本的正文
+		function fingerprint(s) {
+			var h = 5381;
+			for (var i = 0; i < s.length; i += 7) {
+				h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+			}
+			return (h >>> 0).toString(36) + "-" + s.length;
+		}
+
+		// 打字机：按长度自适应步长，约 2 秒内出完
+		function typewriter(el, text) {
+			var total = text.length;
+			var step = Math.max(1, Math.ceil(total / 90));
+			var i = 0;
+			function tick() {
+				i = Math.min(total, i + step);
+				el.textContent = text.slice(0, i);
+				if (i < total) setTimeout(tick, 22);
+			}
+			tick();
+		}
+
+		function initOne(section) {
+			if (section.dataset.aiInit === "1") return;
+			section.dataset.aiInit = "1";
+
+			var text = section.querySelector("[data-ai-summary-text]");
+			var retry = section.querySelector("[data-ai-summary-retry]");
+			if (!text || !API) {
+				section.remove();
+				return;
+			}
+
+			var content = extractContent();
+			// 正文过短，或落在加密文章上（正文是密文、没解密），都不展示摘要
+			if (content.length < 80) {
+				section.remove();
+				return;
+			}
+
+			var cacheKey = "ai-summary:" + (section.dataset.slug || "") + ":" + fingerprint(content);
+			var cached = read(cacheKey);
+			if (cached) {
+				text.className = FULL;
+				text.textContent = cached;
+				return;
+			}
+
+			function showThinking() {
+				text.className = DIM;
+				text.textContent = ui.thinking;
+				if (retry) retry.hidden = true;
+			}
+			function showFailed() {
+				text.className = DIM;
+				text.textContent = ui.failed;
+				if (retry) retry.hidden = false;
+			}
+			function showText(val, animate) {
+				text.className = FULL;
+				if (animate) typewriter(text, val);
+				else text.textContent = val;
+			}
+
+			function load() {
+				showThinking();
+				fetch(API + "/api/summary", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ content: content, slug: section.dataset.slug || "" }),
+				})
+					.then(function (res) {
+						return res.json();
+					})
+					.then(function (data) {
+						if (data && data.summary) {
+							store(cacheKey, data.summary);
+							showText(data.summary, true);
+						} else {
+							showFailed();
+						}
+					})
+					.catch(showFailed);
+			}
+
+			if (retry) retry.addEventListener("click", load);
+			load();
+		}
+
+		function initAll() {
+			var list = document.querySelectorAll("[data-ai-summary]");
+			for (var i = 0; i < list.length; i++) initOne(list[i]);
+		}
+
+		initAll();
+		// Swup 无刷新换页后需要重新初始化（dataset 标记保证幂等）
+		document.addEventListener("astro:page-load", initAll);
+		document.addEventListener("swup:page:view", initAll);
+	})();
+</script>

@@ -25,6 +25,12 @@
     }
   ],
 
+  // ===== Workers AI =====
+  // 免费额度 10000 neurons/天，无需额外密钥；需在 Cloudflare 后台为账号开通 Workers AI
+  "ai": {
+    "binding": "AI"
+  },
+
   // ===== D1 数据库 =====
   // 创建命令: npx wrangler d1 create blog-comments
   // 把返回的 database_id 填到下面
@@ -42,6 +48,8 @@
     // CORS 白名单，逗号分隔。改域名时记得同步这里
     "ALLOWED_ORIGINS": "https://blog.142588.xyz,http://localhost:4321,http://127.0.0.1:4321",
     // true = 新评论进待审核队列（status=pending），需人工放行；false = 直接公开
-    "REQUIRE_APPROVAL": "false"
+    "REQUIRE_APPROVAL": "false",
+    // AI 摘要用模型（Workers AI，免费额度内可用）。换模型只改这里
+    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct-fp8-fast"
   }
 }

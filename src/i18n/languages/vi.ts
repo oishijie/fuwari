@@ -35,4 +35,14 @@ export const vi: Translation = {
 	[Key.author]: "Tác giả",
 	[Key.publishedAt]: "Đăng vào lúc",
 	[Key.license]: "Giấy phép bản quyền",
+
+	[Key.aiInvolvement]: "Mức độ tham gia của AI",
+	[Key.aiLevelPolish]: "Chỉnh sửa",
+	[Key.aiLevelFull]: "Hoàn toàn",
+	[Key.aiLevelNone]: "Không sử dụng",
+
+	[Key.aiSummaryTitle]: "Tóm tắt AI",
+	[Key.aiSummaryThinking]: "Đang tạo tóm tắt…",
+	[Key.aiSummaryFailed]: "Tạo tóm tắt thất bại",
+	[Key.aiSummaryRetry]: "Tạo lại",
 };

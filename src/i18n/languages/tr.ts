@@ -35,4 +35,14 @@ export const tr: Translation = {
 	[Key.author]: "Yazar",
 	[Key.publishedAt]: "Yayınlanma:",
 	[Key.license]: "Lisans",
+
+	[Key.aiInvolvement]: "Yapay Zeka Katılımı",
+	[Key.aiLevelPolish]: "Düzenleme",
+	[Key.aiLevelFull]: "Tam",
+	[Key.aiLevelNone]: "Kullanılmadı",
+
+	[Key.aiSummaryTitle]: "Yapay zeka özeti",
+	[Key.aiSummaryThinking]: "Özet oluşturuluyor…",
+	[Key.aiSummaryFailed]: "Özet oluşturulamadı",
+	[Key.aiSummaryRetry]: "Yeniden oluştur",
 };

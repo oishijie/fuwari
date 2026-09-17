@@ -44,6 +44,8 @@
 6. 代码风格由 Biome 统一，提交前跑 `pnpm lint`。
 7. **加密文章**：frontmatter 加 `password`（可选 `passwordHint`）即启用，原理与改动点见下方专节。解密成功后全局会派发 `password:decrypted` 事件，**任何依赖正文 DOM 的初始化逻辑都要监听它重跑**（TOC、图片灯箱、代码块裁剪等已接好）。
 8. **多图并排网格画廊**：正文用 `[grid]` 与 `[/grid]` 包住图片段落即自动成网格，列数 = 图片数（1~4，最高 4 列；移动端自动单列）。实现：`src/plugins/remark-image-grid.js`（remark AST 阶段重组，注册于 `astro.config.mjs` remarkPlugins **最前**）+ `src/styles/markdown.css` 的 `.image-grid`（**纯 CSS，勿改 @apply**）。灯箱无需处理（PhotoSwipe 按 `.custom-md img` 委托自动覆盖）。⚠️ 用法注意：`[grid]` 块别放正文**第一段**（`remark-excerpt` 会把首段抽成卡片摘要，网格段落抽不出文本，摘要会空）。
+9. **AI 参与程度标示**：文章文末自动显示一张声明卡（复刻自 `blog.7003410.xyz`），frontmatter 写 `aiLevel: none | polish | full` 单独指定，留空取 `aiInvolvementConfig.defaultLevel`。纯静态组件、无客户端脚本，见下方专节。
+10. **AI 摘要**：文章顶部自动显示一段 Workers AI 生成的摘要（`AISummary.astro`，客户端按需生成 + D1 缓存）。开关与后端地址在 `aiSummaryConfig`；**加密文章不显示**（正文是密文）；提取正文时会剔除代码块与公式。后端就是评论 Worker 的 `/api/summary`，见下方专节。
 
 ## 加密文章（password）
 
@@ -114,6 +116,36 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 ```
 
 原因：本机环境变量里有个权限不足的 `CLOUDFLARE_API_TOKEN`，优先级高于 `~/.wrangler/config/default.toml` 的 OAuth 凭据。详细手册见 `workers/comments/README.md`。
+
+## AI 摘要（Workers AI）
+
+文章顶部一张摘要卡。方案参考 `blog.csun.site`，但**后端直接复用评论 Worker**——不需要新 Worker、新域名，也不需要任何外部 API key。
+
+| 项 | 值 |
+| :--- | :--- |
+| 前端组件 | `src/components/misc/AISummary.astro`（客户端 fetch，无构建期依赖） |
+| 配置 | `src/config.ts` 的 `aiSummaryConfig { enable, apiBase }`（与评论同一个 Worker） |
+| 后端路由 | `POST /api/summary`（在 `workers/comments/src/index.ts`） |
+| 缓存 | D1 表 `ai_summaries`，key = 正文规范化后的 SHA-256 |
+| 限额 | D1 表 `ai_summary_quota`，同一 IP 每天 30 次「真实生成」（命中缓存不计数） |
+| 模型 | Workers AI，`wrangler.jsonc` 的 `AI_MODEL`，默认 `@cf/meta/llama-3.1-8b-instruct-fp8-fast` |
+
+**首次启用比评论多两步**（D1 建表 + 重新部署让 Worker 拿到 AI 绑定）：
+
+```bash
+cd workers/comments
+npx wrangler d1 execute blog-comments --remote --file=./migrate-ai-summary.sql
+env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
+```
+
+⚠️ Workers AI 需要在 Cloudflare 后台**为账号开通**（免费额度 10000 neurons/天，无需信用卡）。没开通时 `/api/summary` 会失败。
+
+行为约定：
+
+- **加密文章不生成摘要**：组件只挂在非加密分支，且正文不足 80 字时自删，不会留下空卡片。
+- 前端把正文截断到 8000 字上报，Worker 端按 `sha256(规范化正文)` 查缓存 —— **正文不改就不会重复调用模型**。
+- 前端用 `sessionStorage` 缓存结果（key 含内容指纹），Swup 换页不重复请求、不重播打字机。
+- 请求带 `Origin` 且不在 `ALLOWED_ORIGINS` 白名单时直接 403。
 
 ## 本机环境的坑：删除保护钩子（重要）
 

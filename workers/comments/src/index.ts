@@ -9,13 +9,17 @@
  *   DELETE /api/comments/:id                删除评论（需 Authorization: Bearer <ADMIN_TOKEN>）
  *   GET    /geo                             访客自己的 IP 地理信息（Cloudflare 边缘数据，仅返回给本人）
  *   GET    /health                          健康检查
+*   POST   /api/summary                     文章 AI 摘要（Workers AI 生成 + D1 缓存）
  */
 
 export interface Env {
 	DB: D1Database;
+	AI: Ai;
 	ALLOWED_ORIGINS?: string;
 	ADMIN_TOKEN?: string;
 	REQUIRE_APPROVAL?: string;
+	/** Workers AI 模型 ID，缺省用 DEFAULT_AI_MODEL */
+	AI_MODEL?: string;
 }
 
 interface CommentRow {
@@ -40,6 +44,25 @@ const LIMITS = {
 	rateWindowSeconds: 30,
 	pageSize: 200,
 };
+
+/** AI 摘要相关上限 */
+const AI_LIMITS = {
+	/** 送去模型的最大正文字数（超出截断，控制 token 消耗） */
+	content: 8000,
+	/** 返回给前端的摘要字数上限 */
+	summaryChars: 200,
+	/** 同一 IP 每天最多触发的「真实生成」次数（命中缓存不计数） */
+	dailyPerIp: 30,
+};
+
+/** 默认摘要模型：Workers AI 免费额度内可用，可用 wrangler.jsonc 的 AI_MODEL 覆盖 */
+const DEFAULT_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast";
+
+/** 摘要用系统提示词：约束成「单行、不超过 200 字、不带链接」 */
+const AI_SYSTEM_PROMPT =
+	"你是一个文章摘要工具。请用中文简明介绍用户发来的文章讲了什么，" +
+	"不要换行，不要超过 200 字，不要包含链接和代码，不要提及用户，" +
+	"不要提出建议或补充，直接输出摘要正文。";
 
 // ---------------------------------------------------------------- 工具函数
 
@@ -115,6 +138,110 @@ function toPublic(row: CommentRow) {
 		createdAt: row.created_at,
 		parentId: row.parent_id ?? null,
 	};
+}
+
+// ---------------------------------------------------------------- AI 摘要
+
+async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return Array.from(new Uint8Array(digest))
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+}
+
+/** 规范化正文：抹掉零宽字符、折叠空白 —— 保证「内容相同 → 同一个缓存键」 */
+function normalizeContent(raw: unknown): string {
+	if (typeof raw !== "string") return "";
+	return raw
+		.replace(/[\u200B-\u200D\uFEFF]/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, AI_LIMITS.content);
+}
+
+/**
+* POST /api/summary  { content, slug }
+* 命中 D1 缓存直接返回（不烧额度）；未命中才调 Workers AI 生成并回写。
+* 防滥用：Origin 白名单 + 同 IP 每日生成次数上限。
+*/
+async function generateSummary(req: Request, env: Env, cors: Headers): Promise<Response> {
+	if (!env.AI) return json({ error: "服务端未启用 Workers AI" }, 503, cors);
+
+	// Origin 白名单只是第一道闸，浏览器之外可伪造，真正兜底的是下面的限额
+	const origin = req.headers.get("Origin");
+	if (origin && !parseAllowedOrigins(env).includes(origin)) {
+		return json({ error: "来源不被允许" }, 403, cors);
+	}
+
+	let body: Record<string, unknown>;
+	try {
+		body = (await req.json()) as Record<string, unknown>;
+	} catch {
+		return json({ error: "请求格式有误" }, 400, cors);
+	}
+
+	const content = normalizeContent(body.content);
+	const slug = normalizeSlug(body.slug);
+	if (content.length < 80) return json({ error: "正文太短，无需摘要" }, 400, cors);
+
+	const hash = await sha256Hex(content);
+
+	const cached = await env.DB.prepare(`SELECT summary FROM ai_summaries WHERE hash = ?`)
+		.bind(hash)
+		.first<{ summary: string }>();
+	if (cached?.summary) return json({ summary: cached.summary, cached: true }, 200, cors);
+
+	const ipHash = await hashIp(req.headers.get("CF-Connecting-IP") ?? "0.0.0.0");
+	const day = new Date().toISOString().slice(0, 10);
+	const quota = await env.DB.prepare(
+		`SELECT used FROM ai_summary_quota WHERE ip_hash = ? AND day = ?`,
+	)
+		.bind(ipHash, day)
+		.first<{ used: number }>();
+	if ((quota?.used ?? 0) >= AI_LIMITS.dailyPerIp) {
+		return json({ error: "今天生成得有点多，明天再来吧" }, 429, cors);
+	}
+
+	const model = env.AI_MODEL || DEFAULT_AI_MODEL;
+	let summary = "";
+	try {
+		const ai = env.AI as unknown as {
+			run: (m: string, i: Record<string, unknown>) => Promise<unknown>;
+		};
+		const out = await ai.run(model, {
+			messages: [
+				{ role: "system", content: AI_SYSTEM_PROMPT },
+				{ role: "user", content },
+			],
+			max_tokens: 512,
+		});
+		const raw =
+			typeof out === "string" ? out : String((out as { response?: string })?.response ?? "");
+		summary = raw.replace(/\s*\n+\s*/g, " ").trim().slice(0, AI_LIMITS.summaryChars);
+	} catch (err) {
+		console.error("[blog-comments] AI 摘要生成失败", err);
+		return json({ error: "摘要生成失败，请稍后重试" }, 502, cors);
+	}
+
+	if (!summary) return json({ error: "摘要生成失败，请稍后重试" }, 502, cors);
+
+	try {
+		await env.DB.batch([
+			env.DB.prepare(
+				`INSERT INTO ai_summaries (hash, slug, summary, model, created_at)
+				VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT(hash) DO UPDATE SET summary = excluded.summary, model = excluded.model`,
+			).bind(hash, slug, summary, model, new Date().toISOString()),
+			env.DB.prepare(
+				`INSERT INTO ai_summary_quota (ip_hash, day, used) VALUES (?, ?, 1)
+				ON CONFLICT(ip_hash, day) DO UPDATE SET used = used + 1`,
+			).bind(ipHash, day),
+		]);
+	} catch (err) {
+		console.error("[blog-comments] 摘要缓存写入失败", err);
+	}
+
+	return json({ summary, cached: false }, 200, cors);
 }
 
 // ---------------------------------------------------------------- 处理器
@@ -323,6 +450,9 @@ export default {
 			}
 			if (/^\/api\/comments\/\d+$/.test(path) && request.method === "DELETE") {
 				return await deleteComment(path, request, env, cors);
+			}
+			if (path === "/api/summary" && request.method === "POST") {
+				return await generateSummary(request, env, cors);
 			}
 			if (path === "/geo" && request.method === "GET") {
 				return geoLookup(request, cors);

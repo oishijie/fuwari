@@ -35,4 +35,14 @@ export const ja: Translation = {
 	[Key.author]: "作者",
 	[Key.publishedAt]: "公開日",
 	[Key.license]: "ライセンス",
+
+	[Key.aiInvolvement]: "AI 関与度",
+	[Key.aiLevelPolish]: "推敲",
+	[Key.aiLevelFull]: "完全",
+	[Key.aiLevelNone]: "不使用",
+
+	[Key.aiSummaryTitle]: "AI 要約",
+	[Key.aiSummaryThinking]: "要約を生成中…",
+	[Key.aiSummaryFailed]: "要約の生成に失敗しました",
+	[Key.aiSummaryRetry]: "再生成",
 };

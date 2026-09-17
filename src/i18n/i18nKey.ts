@@ -32,6 +32,16 @@ enum I18nKey {
 	author = "author",
 	publishedAt = "publishedAt",
 	license = "license",
+
+	aiInvolvement = "aiInvolvement",
+	aiLevelPolish = "aiLevelPolish",
+	aiLevelFull = "aiLevelFull",
+	aiLevelNone = "aiLevelNone",
+
+	aiSummaryTitle = "aiSummaryTitle",
+	aiSummaryThinking = "aiSummaryThinking",
+	aiSummaryFailed = "aiSummaryFailed",
+	aiSummaryRetry = "aiSummaryRetry",
 }
 
 export default I18nKey;

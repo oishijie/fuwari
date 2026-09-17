@@ -17,6 +17,9 @@ const postsCollection = defineCollection({
 		password: z.string().optional().default(""),
 		passwordHint: z.string().optional().default(""),
 
+		/* AI 参与程度标示（文末卡片）：none=不使用 / polish=润色 / full=完全；留空取 siteConfig 默认档 */
+		aiLevel: z.enum(["none", "polish", "full"]).optional(),
+
 		/* For internal use */
 		prevTitle: z.string().default(""),
 		prevSlug: z.string().default(""),

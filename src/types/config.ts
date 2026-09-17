@@ -85,6 +85,16 @@ export type LicenseConfig = {
 	url: string;
 };
 
+/** AI 参与程度：不使用 / 润色 / 完全 */
+export type AIInvolvementLevel = "none" | "polish" | "full";
+
+export type AIInvolvementConfig = {
+	/** 是否在全站文章文末显示「AI 参与程度」标示卡 */
+	enable: boolean;
+	/** 文章 frontmatter 未写 aiLevel 时使用的默认档 */
+	defaultLevel: AIInvolvementLevel;
+};
+
 export type LIGHT_DARK_MODE =
 	| typeof LIGHT_MODE
 	| typeof DARK_MODE
@@ -118,4 +128,9 @@ export type UmamiConfig = {
 export type CommentConfig = {
 	enable: boolean; // 是否启用评论
 	apiBase: string; // 自建评论服务地址（Cloudflare Worker），末尾不带斜杠
+};
+
+export type AISummaryConfig = {
+	enable: boolean; // 是否启用文首的 AI 摘要卡片
+	apiBase: string; // 摘要服务地址（与评论同一个 Worker），末尾不带斜杠
 };

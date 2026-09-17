@@ -35,4 +35,14 @@ export const es: Translation = {
 	[Key.author]: "Autor",
 	[Key.publishedAt]: "Publicado el",
 	[Key.license]: "Licencia",
+
+	[Key.aiInvolvement]: "Participación de IA",
+	[Key.aiLevelPolish]: "Pulido",
+	[Key.aiLevelFull]: "Completo",
+	[Key.aiLevelNone]: "No usado",
+
+	[Key.aiSummaryTitle]: "Resumen IA",
+	[Key.aiSummaryThinking]: "Generando resumen…",
+	[Key.aiSummaryFailed]: "No se pudo generar el resumen",
+	[Key.aiSummaryRetry]: "Regenerar",
 };

@@ -8,12 +8,13 @@ import MainGridLayout from "@layouts/MainGridLayout.astro";
 import { getSortedPosts } from "@utils/content-utils";
 import { getDir, getPostUrlBySlug } from "@utils/url-utils";
 import { Icon } from "astro-icon/components";
-import { licenseConfig } from "src/config";
+import AIInvolvement from "../../components/misc/AIInvolvement.astro";
+import AISummary from "../../components/misc/AISummary.astro";
 import Comments from "../../components/misc/Comments.astro";
 import EncryptedPost from "../../components/misc/EncryptedPost.astro";
 import ImageWrapper from "../../components/misc/ImageWrapper.astro";
 import PostMetadata from "../../components/PostMeta.astro";
-import { profileConfig, siteConfig } from "../../config";
+import { aiInvolvementConfig, aiSummaryConfig, licenseConfig, profileConfig, siteConfig } from "../../config";
 import { formatDateToYYYYMMDD } from "../../utils/date-utils";
 
 export async function getStaticPaths() {
@@ -122,14 +123,17 @@ const jsonLd = {
                     <Markdown class="mb-6 markdown-content">
                         <Content />
                     </Markdown>
+                    {aiInvolvementConfig.enable && <AIInvolvement level={entry.data.aiLevel ?? aiInvolvementConfig.defaultLevel} class="mb-6" />}
                     {licenseConfig.enable && <License title={entry.data.title} slug={entry.slug} pubDate={entry.data.published} class="mb-6 rounded-xl license-container"></License>}
                 </EncryptedPost>
             ) : (
                 <>
+                    {aiSummaryConfig.enable && <AISummary slug={entry.slug} class="mb-6 onload-animation" />}
                     <Markdown class="mb-6 markdown-content onload-animation">
                         <Content />
                     </Markdown>
 
+                    {aiInvolvementConfig.enable && <AIInvolvement level={entry.data.aiLevel ?? aiInvolvementConfig.defaultLevel} class="mb-6 onload-animation" />}
                     {licenseConfig.enable && <License title={entry.data.title} slug={entry.slug} pubDate={entry.data.published} class="mb-6 rounded-xl license-container onload-animation"></License>}
                 </>
             )}

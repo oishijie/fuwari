@@ -35,4 +35,14 @@ export const th: Translation = {
 	[Key.author]: "ผู้เขียน",
 	[Key.publishedAt]: "เผยแพร่เมื่อ",
 	[Key.license]: "สัญญาอนุญาต",
+
+	[Key.aiInvolvement]: "ระดับการมีส่วนร่วมของ AI",
+	[Key.aiLevelPolish]: "ขัดเกลา",
+	[Key.aiLevelFull]: "ทั้งหมด",
+	[Key.aiLevelNone]: "ไม่ใช้",
+
+	[Key.aiSummaryTitle]: "สรุปด้วย AI",
+	[Key.aiSummaryThinking]: "กำลังสร้างสรุป…",
+	[Key.aiSummaryFailed]: "สร้างสรุปไม่สำเร็จ",
+	[Key.aiSummaryRetry]: "สร้างใหม่",
 };

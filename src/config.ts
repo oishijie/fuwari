@@ -1,4 +1,6 @@
 import type {
+	AIInvolvementConfig,
+	AISummaryConfig,
 	CommentConfig,
 	ExpressiveCodeConfig,
 	LicenseConfig,
@@ -107,6 +109,19 @@ export const licenseConfig: LicenseConfig = {
 	enable: true,
 	name: "CC BY-NC-SA 4.0",
 	url: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+};
+
+// 文章文末的「AI 参与程度」标示卡（复刻自 blog.7003410.xyz）
+// 每篇文章可在 frontmatter 里写 aiLevel: none | polish | full 单独覆盖默认档
+export const aiInvolvementConfig: AIInvolvementConfig = {
+	enable: true,
+	defaultLevel: "polish",
+};
+
+// 文章顶部的 AI 摘要（Workers AI 生成 + D1 缓存，同一篇只烧一次额度）
+export const aiSummaryConfig: AISummaryConfig = {
+	enable: true,
+	apiBase: "https://comments.142588.xyz",
 };
 
 export const expressiveCodeConfig: ExpressiveCodeConfig = {

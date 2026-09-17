@@ -35,4 +35,14 @@ export const id: Translation = {
 	[Key.author]: "Penulis",
 	[Key.publishedAt]: "Diterbitkan pada",
 	[Key.license]: "Lisensi",
+
+	[Key.aiInvolvement]: "Tingkat Keterlibatan AI",
+	[Key.aiLevelPolish]: "Penyuntingan",
+	[Key.aiLevelFull]: "Penuh",
+	[Key.aiLevelNone]: "Tidak digunakan",
+
+	[Key.aiSummaryTitle]: "Ringkasan AI",
+	[Key.aiSummaryThinking]: "Membuat ringkasan…",
+	[Key.aiSummaryFailed]: "Gagal membuat ringkasan",
+	[Key.aiSummaryRetry]: "Buat ulang",
 };
