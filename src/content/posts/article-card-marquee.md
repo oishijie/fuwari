@@ -12,7 +12,7 @@ order: 0
 
 Fuwari 的文章列表卡片原本很克制：标题一行放不下就 `text-overflow: ellipsis` 截断，摘要两行（移动端一行）之外的内容直接省略。平时没问题，但遇到长标题（比如带副标题的技术文）或长摘要，读者只能点进去才知道到底是什么。
 
-我给卡片加了两个轻量交互，都集中在 `src/components/PostCard.astro` 这一个文件里：
+因此我准备给卡片加了两个轻量交互，都集中在 `src/components/PostCard.astro` 这一个文件里：
 
 1. **标题溢出滚动**：标题只有超出一行时才"滚动出场"，默认静止、鼠标悬停才慢慢滚出全文，滚完自动归位；
 2. **摘要悬停浮层**：摘要被 `line-clamp` 截断时，鼠标悬停弹出一个固定定位的小浮层，把完整摘要贴在原卡片旁边。
@@ -214,10 +214,9 @@ window.addEventListener("scroll", hideDescTip, { passive: true });
 
 ## 小结
 
-两个魔改加起来不到 80 行，核心思路就三句话：
+核心思路很精炼
 
 - **溢出才动**：标题用 JS 检测 `scrollWidth > clientWidth` 开 `is-overflow`，摘要用 `scrollHeight > clientHeight` 判断是否截断，正常卡片完全零开销；
 - **躲开裁切**：浮层挂 `body` + `position: fixed`，不被卡片 `overflow: hidden` 吃掉；
 - **暗色色值写死**：运行时创建 / 文档级浮层节点不在 scoped 作用域，明暗文字色必须 `is:global` 显式给 `rgb()`，别指望 `inherit`。
 
-改完 `astro check` 零报错，本地 `pnpm dev` 刷新首页即可看到效果：把窗口拉窄到标题放不下，悬停标题就会缓缓滚出全文；鼠标停在一行摘要上，被截掉的内容会以浮层贴回来。
