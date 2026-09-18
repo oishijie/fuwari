@@ -56,6 +56,12 @@ export const friends: Friend[] = [
 		avatar: "https://p.liiiu.cn/i/2025/03/13/67d2fc82d329c.webp",
 		description: "清羽飞扬的技术博客：建站教程、编程实战与生活点滴",
 	},
+	{
+		name: "THW 的博客",
+		url: "https://blog.tianhw.top/",
+		avatar: "https://image.tianhw.top/avatar.webp",
+		description: "前途似海，来日方长",
+	},
 	// ---- 博客组织 / 聚合站 ----
 	{
 		name: "开往",
