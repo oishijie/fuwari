@@ -2,6 +2,7 @@
 title: 给博客配一张「AI 摘要」卡：Cloudflare Worker + D1 缓存实操
 published: 2026-09-17
 description: 从在别人博客看到 AI 摘要说起，到把「Worker 生成 + D1 缓存 + 前端打字机」整条链路落到自己的 Fuwari 上。含方案取舍、真实代码，以及字数截断、缓存失效、行尾污染三个坑的完整排错记录。
+image: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?q=80&w=1200&h=800&auto=format&fit=crop'
 tags:
   - Fuwari
   - Cloudflare Workers

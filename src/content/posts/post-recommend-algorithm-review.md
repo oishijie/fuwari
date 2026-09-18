@@ -1,6 +1,7 @@
 ---
 title: 转载｜Astro 静态博客的推荐算法：与我的「随机一篇」对比
 published: 2026-09-13
+image: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?q=80&w=1200&h=800&auto=format&fit=crop'
 category: 博客魔改
 tags:
   - 推荐算法

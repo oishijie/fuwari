@@ -45,4 +45,8 @@ export const ja: Translation = {
 	[Key.aiSummaryThinking]: "要約を生成中…",
 	[Key.aiSummaryFailed]: "要約の生成に失敗しました",
 	[Key.aiSummaryRetry]: "再生成",
+
+	[Key.notFoundTitle]: "ページが見つかりません",
+	[Key.notFoundDesc]: "リンクが切れているか、アドレスが間違っている可能性があります。検索するか、ホームに戻ってください。",
+	[Key.backToHome]: "ホームに戻る",
 };

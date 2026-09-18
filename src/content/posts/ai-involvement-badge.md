@@ -2,6 +2,7 @@
 title: 给博客加一张「AI 参与程度」标示卡
 published: 2026-09-17
 description: 起因是在别人的 Firefly 博客里看到文末一张「AI 参与程度」卡片，顺手把它复刻进自己的 Fuwari。从抓源码、还原结构、补齐多语言，到把卡片挪到 CC 版权之上——一篇完整的实操记录。
+image: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?q=80&w=1200&h=800&auto=format&fit=crop'
 tags:
   - Fuwari
   - 组件复刻

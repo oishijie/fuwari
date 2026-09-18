@@ -42,6 +42,10 @@ enum I18nKey {
 	aiSummaryThinking = "aiSummaryThinking",
 	aiSummaryFailed = "aiSummaryFailed",
 	aiSummaryRetry = "aiSummaryRetry",
+
+	notFoundTitle = "notFoundTitle",
+	notFoundDesc = "notFoundDesc",
+	backToHome = "backToHome",
 }
 
 export default I18nKey;

@@ -45,4 +45,8 @@ export const zh_TW: Translation = {
 	[Key.aiSummaryThinking]: "正在生成摘要…",
 	[Key.aiSummaryFailed]: "摘要生成失敗",
 	[Key.aiSummaryRetry]: "重新生成",
+
+	[Key.notFoundTitle]: "頁面不存在",
+	[Key.notFoundDesc]: "連結可能已失效，或者位址輸錯了。試試站內搜尋，或者回首頁重新找找。",
+	[Key.backToHome]: "回到首頁",
 };

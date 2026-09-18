@@ -1,6 +1,7 @@
 ---
 title: 转载｜Astro 博客接入 Live2D 看板娘：与本站取舍对比
 published: 2026-09-13
+image: 'https://images.unsplash.com/photo-1578632749014-ca77efd052eb?q=80&w=1200&h=800&auto=format&fit=crop'
 category: 博客魔改
 tags:
   - Live2D

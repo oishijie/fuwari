@@ -1,0 +1,44 @@
+---
+import I18nKey from "@i18n/i18nKey";
+import { i18n } from "@i18n/translation";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+
+// 这个页面在构建时会被 Astro 特殊处理，输出为 dist/404.html（不受 trailingSlash 影响）。
+// 它是 Cloudflare Pages 关闭「SPA 兜底」的开关：一旦产物根目录存在 404.html，
+// Pages 就不再把所有未匹配路径都回落到 `/` 并返回 200，而是返回本页 + 真正的 404 状态码。
+// 详见 AGENTS.md「404 与 SPA 兜底」一节。
+---
+
+<MainGridLayout
+	title={i18n(I18nKey.notFoundTitle)}
+	description={i18n(I18nKey.notFoundDesc)}
+>
+	<div
+		class="card-base px-8 py-16 mb-4 text-center onload-animation"
+		style="animation-delay: var(--content-delay)"
+	>
+		<div class="text-[5rem] leading-none font-bold text-[var(--primary)] opacity-20 select-none">
+			404
+		</div>
+		<h1 class="text-xl font-bold mt-2 mb-3">
+			{i18n(I18nKey.notFoundTitle)}
+		</h1>
+		<p class="text-sm text-black/50 dark:text-white/50 leading-relaxed max-w-md mx-auto mb-8">
+			{i18n(I18nKey.notFoundDesc)}
+		</p>
+		<div class="flex items-center justify-center gap-3 flex-wrap">
+			<a
+				href="/"
+				class="btn-regular rounded-lg h-10 px-5 text-sm font-bold transition active:scale-95"
+			>
+				{i18n(I18nKey.backToHome)}
+			</a>
+			<a
+				href="/archive/"
+				class="btn-plain rounded-lg h-10 px-5 text-sm font-bold transition active:scale-95"
+			>
+				{i18n(I18nKey.archive)}
+			</a>
+		</div>
+	</div>
+</MainGridLayout>

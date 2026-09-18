@@ -23,6 +23,7 @@
 - 修复 `src/components/LightDarkSwitch.svelte`（Svelte 5 runes 组件）缺少显式 `Props` 声明的问题——缺少声明时 Astro 会将其 props 推断为 `Record<string, never>`，导致 `Navbar.astro` 中标注 `client:only` 时触发 `ts(2322)`
 - 移除 `astro.config.mjs` 中 `icon()` 插件 `include` 下误粘贴的无效集合键 `"preprocess: vitePreprocess(),"`（该内容本属 `svelte.config.js`）
 - 以上修复后 `pnpm check` 结果由 **2 errors** 降至 **0 errors / 0 warnings**
+- **修复 soft 404**：站点此前对**任意未匹配路径**都返回 200 + 首页 HTML（线上实测 `/go.html`、`/safego/`、`/this-page-does-not-exist-12345` 返回的字节数与首页完全相同），会让搜索爬虫把大量垃圾 URL 当作有效页面收录。根因是 **Cloudflare Pages 在产物缺少顶层 `404.html` 时自动启用 SPA 兜底**，把所有未匹配请求回落到 `/` 并返回 200。修复：新增 `src/pages/404.astro`（Astro 对状态码页面有特例，必定输出为 `dist/404.html`，不受 `trailingSlash` 影响），并在 10 个语言文件补齐 i18n 文案 `notFoundTitle` / `notFoundDesc` / `backToHome`。部署后未匹配路径将返回该页 + **404 状态码**。详见 `AGENTS.md`「404 与 SPA 兜底」（本条目的 `pnpm check` / `pnpm build` 按项目惯例由用户执行，尚未验证）
 
 ### 移除
 

@@ -45,4 +45,8 @@ export const id: Translation = {
 	[Key.aiSummaryThinking]: "Membuat ringkasan…",
 	[Key.aiSummaryFailed]: "Gagal membuat ringkasan",
 	[Key.aiSummaryRetry]: "Buat ulang",
+
+	[Key.notFoundTitle]: "Halaman tidak ditemukan",
+	[Key.notFoundDesc]: "Tautan mungkin rusak atau alamat salah ketik. Coba cari, atau kembali ke beranda.",
+	[Key.backToHome]: "Kembali ke beranda",
 };

@@ -57,6 +57,11 @@ export const navBarConfig: NavBarConfig = {
 			external: false, // Show an external link icon and will open in a new tab
 		},
 		{
+			name: "赞赏",
+			url: "/sponsor/", // 赞赏页：收款码 + 鸣谢名单，金额一律不公开
+			external: false,
+		},
+		{
 			name: "开往",
 			url: "https://www.travellings.cn/typewriter.html", // 内部链接不应包含基本路径，因为它是自动添加的
 			external: true, // 显示外部链接图标，并将在新选项卡中打开

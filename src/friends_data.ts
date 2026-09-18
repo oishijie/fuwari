@@ -50,6 +50,12 @@ export const friends: Friend[] = [
 		avatar: "https://blog.cuteleaf.cn/favicon.ico",
 		description: "飞萤之火自无梦的长夜亮起，绽放在终竟的明天",
 	},
+	{
+		name: "清羽飞扬",
+		url: "https://blog.liushen.fun/",
+		avatar: "https://p.liiiu.cn/i/2025/03/13/67d2fc82d329c.webp",
+		description: "清羽飞扬的技术博客：建站教程、编程实战与生活点滴",
+	},
 	// ---- 博客组织 / 聚合站 ----
 	{
 		name: "开往",

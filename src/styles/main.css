@@ -55,6 +55,16 @@
         text-[var(--btn-content)] dark:text-white/75
     }
 
+    /* 主题色圆底图标（页面小标题左侧那种）。
+       🔴 不要写成 Tailwind 的 `bg-[var(--primary)]/10` —— v3 无法给 var() 任意值注入 alpha，
+       那个类**一行 CSS 都不会生成**（静默失效、不报错），用 tailwindcss CLI 实测确认过。
+       深色模式无需额外覆盖：--primary 自身在两个主题下取值不同。 */
+    .icon-badge {
+        @apply flex items-center justify-center shrink-0 w-10 h-10 rounded-full transition;
+        color: var(--primary);
+        background: color-mix(in oklab, var(--primary), transparent 90%);
+    }
+
     .link-underline {
         @apply transition underline decoration-2 decoration-dashed decoration-[var(--link-underline)]
         hover:decoration-[var(--link-hover)] active:decoration-[var(--link-active)] underline-offset-[0.25rem]

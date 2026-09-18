@@ -45,4 +45,8 @@ export const th: Translation = {
 	[Key.aiSummaryThinking]: "กำลังสร้างสรุป…",
 	[Key.aiSummaryFailed]: "สร้างสรุปไม่สำเร็จ",
 	[Key.aiSummaryRetry]: "สร้างใหม่",
+
+	[Key.notFoundTitle]: "ไม่พบหน้าที่ต้องการ",
+	[Key.notFoundDesc]: "ลิงก์อาจเสียหรือพิมพ์ที่อยู่ผิด ลองค้นหา หรือกลับไปหน้าแรก",
+	[Key.backToHome]: "กลับหน้าแรก",
 };

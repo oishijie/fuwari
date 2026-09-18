@@ -45,4 +45,8 @@ export const es: Translation = {
 	[Key.aiSummaryThinking]: "Generando resumen…",
 	[Key.aiSummaryFailed]: "No se pudo generar el resumen",
 	[Key.aiSummaryRetry]: "Regenerar",
+
+	[Key.notFoundTitle]: "Página no encontrada",
+	[Key.notFoundDesc]: "El enlace puede estar roto o la dirección mal escrita. Intenta buscar o vuelve al inicio.",
+	[Key.backToHome]: "Volver al inicio",
 };

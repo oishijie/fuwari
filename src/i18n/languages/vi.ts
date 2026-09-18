@@ -45,4 +45,8 @@ export const vi: Translation = {
 	[Key.aiSummaryThinking]: "Đang tạo tóm tắt…",
 	[Key.aiSummaryFailed]: "Tạo tóm tắt thất bại",
 	[Key.aiSummaryRetry]: "Tạo lại",
+
+	[Key.notFoundTitle]: "Không tìm thấy trang",
+	[Key.notFoundDesc]: "Liên kết có thể đã hỏng hoặc địa chỉ bị nhập sai. Hãy thử tìm kiếm hoặc quay lại trang chủ.",
+	[Key.backToHome]: "Về trang chủ",
 };

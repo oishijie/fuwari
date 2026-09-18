@@ -1,0 +1,424 @@
+---
+
+import { Icon } from "astro-icon/components";
+import Comments from "@components/misc/Comments.astro";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { siteConfig } from "../config";
+import { sponsors, sponsorWays } from "../sponsor_data";
+
+// 名单排序：有日期的按日期倒序在前，没日期的按书写顺序附在末尾。
+// 这样在 sponsor_data.ts 里「往下追加」就是最新的在上，不需要手动调位置。
+const sortedSponsors = [...sponsors]
+	.map((item, index) => ({ item, index }))
+	.sort((a, b) => {
+		const da = a.item.date ?? "";
+		const db = b.item.date ?? "";
+		if (da && db) return db.localeCompare(da);
+		if (da) return -1;
+		if (db) return 1;
+		return b.index - a.index;
+	})
+	.map(({ item }) => item);
+
+const formatDate = (value?: string): string => {
+	if (!value) return "";
+	const [y, m, d] = value.split("-");
+	if (!y || !m || !d) return value;
+	return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`;
+};
+---
+
+<MainGridLayout title="赞赏支持" description={`感谢你对 ${siteConfig.title} 的支持`}>
+    <div class="card-base p-6 md:p-8">
+
+        <!-- 页头 -->
+        <header class="mb-10">
+            <div class="flex items-center gap-3 mb-3">
+                <span class="w-1 h-5 bg-[var(--primary)] rounded-full"></span>
+                <h1 class="text-xl font-semibold text-black dark:text-white">赞赏支持</h1>
+            </div>
+            <p class="text-sm text-black/55 dark:text-white/55 leading-relaxed max-w-2xl">
+                感谢你读到这里。如果这些文字帮到过你，可以请我喝杯咖啡 —— 完全出于自愿，
+                赞赏与否都不影响你阅读这里的任何内容。
+            </p>
+        </header>
+
+        <!-- 收款码 -->
+        <section class="mb-14">
+            <div class="flex items-center gap-3 mb-5">
+                <div class="icon-badge">
+                    <Icon name="material-symbols:local-cafe-rounded" class="text-[1.25rem]"></Icon>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-black dark:text-white">请我喝杯咖啡</h2>
+                    <p class="text-xs text-black/45 dark:text-white/45">选择一种方式扫码即可</p>
+                </div>
+            </div>
+
+            <div class="sponsor-qr-grid">
+                {sponsorWays.map((way) => (
+                    <figure class="sponsor-qr-card">
+                        <div class="sponsor-qr-frame">
+                            <img
+                                src={way.qr}
+                                alt={`${way.name}收款码`}
+                                width="180"
+                                height="180"
+                                loading="lazy"
+                                decoding="async"
+                                onerror="this.closest('.sponsor-qr-frame').classList.add('is-empty')"
+                            />
+                            <div class="sponsor-qr-placeholder" aria-hidden="true">
+                                <Icon name="material-symbols:qr-code-2-rounded" class="text-[2.5rem]"></Icon>
+                                <span class="text-sm font-medium">{way.name}收款码</span>
+                                <span class="text-xs opacity-60">待补充</span>
+                            </div>
+                        </div>
+                        <figcaption class="sponsor-qr-caption">
+                            <span class="sponsor-qr-name">{way.name}</span>
+                            {way.hint && <span class="sponsor-qr-hint">{way.hint}</span>}
+                        </figcaption>
+                    </figure>
+                ))}
+            </div>
+
+            <p class="mt-5 text-xs text-black/45 dark:text-white/45 leading-relaxed">
+                金额不公开 —— 这个页面上不会出现任何金额数字，是我和每一位朋友之间的小默契。
+            </p>
+        </section>
+
+        <!-- 鸣谢名单 -->
+        <section class="mb-14">
+            <div class="flex flex-wrap items-center gap-3 mb-2">
+                <div class="icon-badge">
+                    <Icon name="material-symbols:favorite-rounded" class="text-[1.25rem]"></Icon>
+                </div>
+                <h2 class="text-lg font-semibold text-black dark:text-white">鸣谢名单</h2>
+                {sortedSponsors.length > 0 && (
+                    <span class="sponsor-count">共 {sortedSponsors.length} 位</span>
+                )}
+            </div>
+            <p class="text-xs text-black/45 dark:text-white/45 mb-5 sponsor-indent">
+                按时间倒序排列。不便署名的朋友，一律记为「一位朋友」。
+            </p>
+
+            {sortedSponsors.length > 0 ? (
+                <ul class="sponsor-list">
+                    {sortedSponsors.map((item) => (
+                        <li class="sponsor-item">
+                            <span class="sponsor-avatar" aria-hidden="true">
+                                <span class="sponsor-avatar-initial">{item.name.charAt(0)}</span>
+                                {item.avatar && (
+                                    <img src={item.avatar} alt="" width="88" height="88" loading="lazy" decoding="async" onerror="this.remove()" />
+                                )}
+                            </span>
+
+                            <span class="sponsor-body">
+                                <span class="sponsor-name">{item.name}</span>
+                                {item.message && <span class="sponsor-message">{item.message}</span>}
+                            </span>
+
+                            {item.date && (
+                                <time class="sponsor-date" datetime={item.date}>{formatDate(item.date)}</time>
+                            )}
+
+                            {item.url && (
+                                <a class="sponsor-link" href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`访问 ${item.name}`}>
+                                    <Icon name="fa6-solid:arrow-up-right-from-square" class="text-[0.7rem]"></Icon>
+                                </a>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <div class="sponsor-empty">
+                    <Icon name="material-symbols:volunteer-activism-rounded" class="text-[2rem] text-[var(--primary)] opacity-70"></Icon>
+                    <p class="text-sm text-black/50 dark:text-white/50">名单还是空的，欢迎成为第一位支持者</p>
+                </div>
+            )}
+        </section>
+
+        <!-- 几点说明 -->
+        <section class="sponsor-notes">
+            <h2 class="text-lg font-semibold text-black dark:text-white mb-4">几点说明</h2>
+            <ul class="space-y-3">
+                <li class="sponsor-note-item">
+                    <Icon name="material-symbols:check-circle-rounded" class="text-[1rem] text-[var(--primary)] mt-0.5 shrink-0"></Icon>
+                    <span>赞赏完全自愿，不会解锁任何额外内容，也不影响你访问这里的任何一篇文章。</span>
+                </li>
+                <li class="sponsor-note-item">
+                    <Icon name="material-symbols:check-circle-rounded" class="text-[1rem] text-[var(--primary)] mt-0.5 shrink-0"></Icon>
+                    <span>金额一律不公开，名单只展示昵称与留言。</span>
+                </li>
+                <li class="sponsor-note-item">
+                    <Icon name="material-symbols:check-circle-rounded" class="text-[1rem] text-[var(--primary)] mt-0.5 shrink-0"></Icon>
+                    <span>赞赏时留个备注，或者在下方评论区说一声，我就会把你记进上面的名单。</span>
+                </li>
+                <li class="sponsor-note-item">
+                    <Icon name="material-symbols:check-circle-rounded" class="text-[1rem] text-[var(--primary)] mt-0.5 shrink-0"></Icon>
+                    <span>不想署名也没关系，说一声，我按匿名处理。</span>
+                </li>
+            </ul>
+        </section>
+
+        <Comments />
+
+    </div>
+</MainGridLayout>
+
+<style>
+/* ===== 收款码 ===== */
+.sponsor-qr-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 28px 40px;
+}
+
+.sponsor-qr-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+}
+
+.sponsor-qr-frame {
+    position: relative;
+    width: clamp(140px, 36vw, 180px);
+    aspect-ratio: 1;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--card-bg);
+    border: 1px solid var(--line-color);
+    box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.35);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.25s, box-shadow 0.25s;
+}
+
+.sponsor-qr-card:hover .sponsor-qr-frame {
+    transform: translateY(-5px);
+    border-color: color-mix(in oklab, var(--primary), transparent 45%);
+    box-shadow: 0 16px 30px -14px color-mix(in oklab, var(--primary), transparent 55%);
+}
+
+.sponsor-qr-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* 图片缺失时（未放置 / 加载失败）显示虚线占位框，避免出现破图 */
+.sponsor-qr-placeholder {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--primary);
+    background: var(--btn-regular-bg);
+    border: 2px dashed color-mix(in oklab, var(--primary), transparent 55%);
+    border-radius: inherit;
+}
+
+.sponsor-qr-frame.is-empty img {
+    display: none;
+}
+
+.sponsor-qr-frame.is-empty .sponsor-qr-placeholder {
+    display: flex;
+}
+
+.sponsor-qr-caption {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    text-align: center;
+}
+
+.sponsor-qr-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--deep-text);
+}
+
+.sponsor-qr-hint {
+    font-size: 0.75rem;
+    color: color-mix(in oklab, var(--deep-text), transparent 45%);
+}
+
+/* ===== 鸣谢名单 ===== */
+.sponsor-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary);
+    background: color-mix(in oklab, var(--primary), transparent 88%);
+}
+
+.sponsor-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.sponsor-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--line-color);
+    background: var(--card-bg);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.25s, background 0.25s;
+}
+
+.sponsor-item:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--primary), transparent 40%);
+    background: color-mix(in oklab, var(--primary), var(--card-bg) 94%);
+}
+
+.sponsor-avatar {
+    position: relative;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--primary);
+    background: color-mix(in oklab, var(--primary), var(--card-bg) 80%);
+}
+
+.sponsor-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.sponsor-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.sponsor-name {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--deep-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sponsor-message {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: color-mix(in oklab, var(--deep-text), transparent 40%);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.sponsor-date {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    color: color-mix(in oklab, var(--deep-text), transparent 58%);
+}
+
+.sponsor-link {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    color: var(--primary);
+    background: color-mix(in oklab, var(--primary), transparent 90%);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.sponsor-link:hover {
+    background: color-mix(in oklab, var(--primary), transparent 78%);
+    transform: scale(1.08);
+}
+
+/* 空态 */
+.sponsor-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 40px 20px;
+    border-radius: 16px;
+    border: 1px dashed var(--line-color);
+    background: color-mix(in oklab, var(--card-bg), transparent 30%);
+}
+
+/* ===== 说明 ===== */
+.sponsor-notes {
+    padding: 22px 24px;
+    border-radius: var(--radius-large);
+    border: 1px solid var(--line-color);
+    background: color-mix(in oklab, var(--primary), var(--card-bg) 96%);
+}
+
+.sponsor-note-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: color-mix(in oklab, var(--deep-text), transparent 22%);
+}
+
+/* 与图标容器等宽的左缩进：40px 圆底 + 12px 间距 */
+.sponsor-indent {
+    margin-left: 3.25rem;
+}
+
+@media (max-width: 639px) {
+    .sponsor-qr-grid {
+        gap: 20px;
+    }
+    .sponsor-list {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .sponsor-indent {
+        margin-left: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sponsor-qr-frame,
+    .sponsor-item,
+    .sponsor-link {
+        transition: none;
+    }
+}
+</style>

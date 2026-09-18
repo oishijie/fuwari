@@ -2,6 +2,7 @@
 title: 给博客配一个桌面端后台：从 CLI 原型到轻阅集成
 published: 2026-09-13
 description: 起因是看到别人给博客写本地管理 CLI，遂先做个 Node 原型，再集成进自己常用的 Markdown 编辑器「轻阅」，最后接上 CF Pages 的自动部署——从此写文章到上线只差一个按钮。
+image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?q=80&w=1200&h=800&auto=format&fit=crop'
 tags:
   - Astro
   - Wails

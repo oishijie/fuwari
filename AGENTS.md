@@ -46,6 +46,8 @@
 8. **多图并排网格画廊**：正文用 `[grid]` 与 `[/grid]` 包住图片段落即自动成网格，列数 = 图片数（1~4，最高 4 列；移动端自动单列）。实现：`src/plugins/remark-image-grid.js`（remark AST 阶段重组，注册于 `astro.config.mjs` remarkPlugins **最前**）+ `src/styles/markdown.css` 的 `.image-grid`（**纯 CSS，勿改 @apply**）。灯箱无需处理（PhotoSwipe 按 `.custom-md img` 委托自动覆盖）。⚠️ 用法注意：`[grid]` 块别放正文**第一段**（`remark-excerpt` 会把首段抽成卡片摘要，网格段落抽不出文本，摘要会空）。
 9. **AI 参与程度标示**：文章文末自动显示一张声明卡（复刻自 `blog.7003410.xyz`），frontmatter 写 `aiLevel: none | polish | full` 单独指定，留空取 `aiInvolvementConfig.defaultLevel`。纯静态组件、无客户端脚本，见下方专节。
 10. **AI 摘要**：文章顶部自动显示一段 Workers AI 生成的摘要（`AISummary.astro`，客户端按需生成 + D1 缓存）。开关与后端地址在 `aiSummaryConfig`；**加密文章不显示**（正文是密文）；提取正文时会剔除代码块与公式。后端就是评论 Worker 的 `/api/summary`，见下方专节。
+11. **赞赏页**：`/sponsor/` 是**纯静态页**（无后端、无客户端脚本），收款方式与鸣谢名单在 `src/sponsor_data.ts` 手工维护，**金额一律不公开**（数据结构里就没有 amount 字段）。收款码放 `public/sponsor/` 即自动生效，缺图显示占位框。见下方专节。
+12. **主题色圆底图标**用全局类 `.icon-badge`（`w-10 h-10` 圆底 + 10% 主题色底，定义在 `src/styles/main.css`）。⚠️ **不要写 `bg-[var(--primary)]/10`** —— Tailwind v3 在给 `var()` 任意值加透明度修饰符时**不生成任何 CSS**（静默失效、不报错），`friends.astro` 曾因此整片圆底无色。需要带透明度就用 `color-mix(in oklab, var(--x), transparent N%)`。
 
 ## 加密文章（password）
 
@@ -84,7 +86,24 @@ passwordHint: "可选提示（会给访客看）"
 - 示例文章：`src/content/posts/encrypted-post-demo.md`（密码 `fuwari`）—— 既是功能演示，也是解密后渲染（灯箱 / 代码块复制 / 目录重建）的自检样本，验证完可删。
 - 校验工具：`.workbuddy/tools/verify-crypto-roundtrip.mjs`（加密→浏览器端解密往返，含错误密码拒绝 / 确定性校验）、`.workbuddy/tools/verify-encrypted-post.mjs`（`.astro` 编译 + 内联脚本 TS 语法）、`.workbuddy/tools/verify-encrypted-excerpt.mjs`（加密文章摘要封堵，3 用例）。
 
-## 评论后端（workers/comments/）
+## 404 与 SPA 兜底（重要）
+
+**Cloudflare Pages 的规则**：如果产物根目录里**没有** `404.html`，Pages 会假定这是个单页应用（SPA），把**所有未匹配路径**一律回落到 `/`（首页）并返回 **HTTP 200**。后果就是任意垃圾 URL（`/go.html`、`/随便什么/`）都被当成有效页面，搜索爬虫会照单收录——即所谓 **soft 404**。
+
+**修复方式**：保留 `src/pages/404.astro`。Astro 对状态码页面有特例（`getOutputFilename` 命中 `STATUS_CODE_PAGES`），**无论 `trailingSlash` / `build.format` 怎么配，它都输出为 `dist/404.html`**。这个文件一旦存在，Pages 立刻切换为「真 404」行为：未匹配路径返回该页面 + **404 状态码**。
+
+⚠️ **两条红线**：
+
+- **不要删掉或改名这个文件**（比如改成 `404/index.astro`）。只要产物里没有顶层 `404.html`，整站会立刻退回 SPA 兜底、所有 404 变 200，而且**不会有任何报错提示**。
+- 页面文案走 i18n（`notFoundTitle` / `notFoundDesc` / `backToHome`）。`Translation` 类型要求**全语言必填**，新增语言文件时漏了这三个键会让 `pnpm check` 失败；可先用 `.workbuddy/tools/verify-i18n-keys.mjs` 离线自查（纯文本对比，不需要构建）。
+
+**验证**（部署后执行）：
+
+```bash
+# 期望 404。修复前这里返回 200，且内容是首页 HTML
+curl -s --noproxy '*' -o /dev/null -w "%{http_code}\n" \
+  https://blog.142588.xyz/this-page-does-not-exist-12345
+```
 
 ## 注意事项与已知风险
 
@@ -155,6 +174,28 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 - 前端用 `sessionStorage` 缓存结果（key 含内容指纹），Swup 换页不重复请求、不重播打字机。
 - 请求带 `Origin` 且不在 `ALLOWED_ORIGINS` 白名单时直接 403。
 
+## 赞赏页（/sponsor/）
+
+一个纯静态的赞赏 / 鸣谢页：**无后端、无客户端脚本**，收款方式与鸣谢名单全部手工维护。
+
+| 项 | 值 |
+| :--- | :--- |
+| 页面 | `src/pages/sponsor.astro` |
+| 数据 | `src/sponsor_data.ts`（`sponsorWays` 收款方式 / `sponsors` 鸣谢名单） |
+| 导航入口 | `src/config.ts` 的 `navBarConfig`，位于「友链」与「开往」之间 |
+| 收款码 | 图片放 `public/sponsor/`，路径写在 `sponsorWays[].qr` |
+
+行为约定：
+
+- **金额一律不公开**：数据接口里没有 amount 字段，页面也不渲染任何金额数字。要改这条约定，得同时改数据接口与页面。
+- **收款码缺图不报错**：`<img>` 带 `onerror`，图片不存在或加载失败时给 `.sponsor-qr-frame` 加 `.is-empty`，显示虚线占位框。把图片按 `qr` 路径丢进 `public/sponsor/` 即自动生效，**不需要动代码**。
+- **名单排序**：有 `date` 的按日期倒序在前，无 `date` 的按数组书写顺序附在末尾 —— 维护时**往下追加**即可，不必手动调位置。
+- 留言最多 2 行（`-webkit-line-clamp`），头像缺失时回退为昵称首字符。
+- ⚠️ 文案硬编码中文，**没有走 i18n**（与 `friends.astro` / `now.astro` 一致）：单语言站内页可以照这个先例办。
+- 样式刻意避开 Tailwind 的两个坑（已用 `tailwindcss` CLI 实测产物确认）：
+  1. `bg-[var(--primary)]/10` **不会生成任何 CSS** —— v3 无法给 `var()` 任意值注入 alpha，整个类被静默丢弃。圆底图标一律用全局 `.icon-badge`（定义在 `src/styles/main.css` 的 `@layer components`，内部用 `color-mix()`）。
+  2. `ml-13` 不在默认 spacing scale 内，**同样不生成**。改用 `.sponsor-indent`。
+
 ## 本机环境的坑：删除保护钩子（重要）
 
 本机运行着 `safe-delete` 安全钩子（开关 `CODEBUDDY_SAFE_DELETE_ENABLED`，默认**单回合累计删除 50 个文件**即拦截）。Astro 在**开发服务器启动**与**生产构建收尾**时都会批量删除中间产物，所以直接跑 `pnpm dev` / `pnpm build` 会被拦下：
@@ -196,3 +237,5 @@ CODEBUDDY_SAFE_DELETE_ENABLED=0 ./node_modules/.bin/astro dev --host 127.0.0.1
 - [ ] 若改了 `siteConfig` 等配置：类型定义与 `src/config.ts` 已同步
 - [ ] 若新增客户端脚本：验证 Swup 页面切换后仍生效
 - [ ] 若改了依赖或构建流程：`pnpm build` 可完整产出 `dist`
+- [ ] 新增/修改文章后：`python .workbuddy/tools/verify-tags.py`（标签三条守则 + 行尾检查）
+- [ ] 不启动 dev server 看效果：`.workbuddy/tools/preview-post.mjs <md路径>`（文章渲染预览，可切深色）、`preview-sponsor-page.mjs`（赞赏页）、`verify-astro-syntax.mjs`（`.astro` 语法 + 行尾）

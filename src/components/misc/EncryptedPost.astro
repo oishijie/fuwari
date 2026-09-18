@@ -94,7 +94,7 @@ const encryptedData = encryptContent(rawHtml, password, slug);
 		return out;
 	}
 
-	async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+	async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
 		const keyMaterial = await crypto.subtle.importKey(
 			"raw",
 			new TextEncoder().encode(password),

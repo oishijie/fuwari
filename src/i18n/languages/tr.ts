@@ -45,4 +45,8 @@ export const tr: Translation = {
 	[Key.aiSummaryThinking]: "Özet oluşturuluyor…",
 	[Key.aiSummaryFailed]: "Özet oluşturulamadı",
 	[Key.aiSummaryRetry]: "Yeniden oluştur",
+
+	[Key.notFoundTitle]: "Sayfa bulunamadı",
+	[Key.notFoundDesc]: "Bağlantı kopmuş veya adres yanlış yazılmış olabilir. Aramayı deneyin ya da ana sayfaya dönün.",
+	[Key.backToHome]: "Ana sayfaya dön",
 };

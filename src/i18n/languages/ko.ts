@@ -45,4 +45,8 @@ export const ko: Translation = {
 	[Key.aiSummaryThinking]: "요약 생성 중…",
 	[Key.aiSummaryFailed]: "요약 생성 실패",
 	[Key.aiSummaryRetry]: "다시 생성",
+
+	[Key.notFoundTitle]: "페이지를 찾을 수 없습니다",
+	[Key.notFoundDesc]: "링크가 끊어졌거나 주소가 잘못 입력되었을 수 있습니다. 검색하거나 홈으로 돌아가세요.",
+	[Key.backToHome]: "홈으로",
 };

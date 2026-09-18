@@ -2,6 +2,7 @@
 title: 'Now 页启用：把发布门槛降到零'
 published: 2026-09-13
 description: '受 Owen 的 Jant（Hidden from Latest）启发，给博客加了 Now 页：frontmatter 写 hidden: true 的文章不会出现在首页时间线和 RSS 里，只收录在归档、分类和这个 Now 页——写了就发，没有「打扰订阅者」的心理负担。'
+image: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?q=80&w=1200&h=800&auto=format&fit=crop'
 tags: ['Fuwari', 'Now页面']
 category: 博客魔改
 draft: false
