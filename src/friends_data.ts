@@ -62,6 +62,30 @@ export const friends: Friend[] = [
 		avatar: "https://image.tianhw.top/avatar.webp",
 		description: "前途似海，来日方长",
 	},
+	{
+		name: "枝动力の小站",
+		url: "https://zhidongli.top/",
+		avatar: "https://zhidongli.top/Photo.jpg",
+		description: "华风夏韵，洛水天依！",
+	},
+	{
+		name: "阮一峰的网络日志",
+		url: "https://www.ruanyifeng.com/blog/",
+		avatar: "https://www.ruanyifeng.com/blog/images/person_shot.jpg",
+		description: "科技爱好者周刊，记录每周值得分享的科技内容",
+	},
+	{
+		name: "lcrworld's Blog",
+		url: "https://lcrworld.xyz/",
+		avatar: "https://lcrworld.xyz/apple-touch-icon.png",
+		description: "个人博客，分享技术文章、项目展示与生活动态",
+	},
+	{
+		name: "MSQY 的博客",
+		url: "https://www.msqy.cc.cd/",
+		avatar: "https://www.msqy.cc.cd/_astro/avatar.BhxfBZ-m_Z12zhvA.webp",
+		description: "所见所闻，所思所想",
+	},
 	// ---- 博客组织 / 聚合站 ----
 	{
 		name: "开往",

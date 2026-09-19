@@ -1,0 +1,53 @@
+{
+  // 自托管访问统计后端（Cloudflare Workers + D1）
+  // 前端埋点：src/components/Webviso.astro        → POST /api/visit
+  // 侧边栏卡片：src/components/widget/SiteStats.astro → GET /api/stats
+  //
+  // 数据库沿用历史的 web_analytics 库（表 t_website / t_web_visitor），
+  // 所以换后端不丢数据，前端埋点地址也不用改（部署后自动绑回原域名）。
+  "name": "blog-analytics",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-07-03",
+
+  // ===== 可观测性 =====
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    }
+  },
+
+  // ===== 自定义域名 =====
+  // workers.dev 在中国大陆被 DNS 污染，直连不通，必须走自有域名。
+  // custom_domain: true 会让 wrangler 自动创建 DNS 记录与证书
+  // （该子域名此前指向已删除的源站，报 CF 1016 origin_dns_error，部署即修复）
+  "routes": [
+    {
+      "pattern": "webana.142588.xyz",
+      "custom_domain": true
+    }
+  ],
+
+  // ===== D1 数据库 =====
+  // 这是历史统计库，已有约 1788 条访问记录，不要重建
+  "d1_databases": [
+    {
+      "binding": "ANALYTICS_DB",
+      "database_name": "web_analytics",
+      "database_id": "a22fcbb0-5add-46b8-9053-0ff9129587a4"
+    }
+  ],
+
+  // ===== 非敏感配置（明文，可入库）=====
+  "vars": {
+    // CORS 白名单，逗号分隔。改域名时记得同步这里
+    "ALLOWED_ORIGINS": "https://blog.142588.xyz,http://localhost:4321,http://127.0.0.1:4321",
+    // 允许自动登记的站点域名：库里有记录的域名不受此限制，但新域名必须在这里才会被写入
+    "SITE_HOSTS": "blog.142588.xyz",
+    // 同一次「访问」的切分窗口（分钟）：同一访客间隔超过这么久算新会话
+    "SESSION_GAP_MINUTES": "30"
+  }
+}

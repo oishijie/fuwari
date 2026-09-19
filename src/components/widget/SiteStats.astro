@@ -1,0 +1,229 @@
+---
+/**
+ * 侧边栏「访问统计」卡片
+ *
+ * 复刻 seasir.top《Umami 访问统计卡片》的三格版式（总浏览量 / 访问数 / 游客数 + 数字滚动），
+ * 但数据源不是 Umami，而是本站自己的自托管统计后端（workers/analytics/，与 Webviso 同一个 Worker）：
+ *   GET {apiBase}/api/stats?hostname=<当前域名>
+ *
+ * 这样统计口径、数据库、域名全在自己手里，不依赖任何第三方统计服务。
+ */
+import WidgetLayout from "./WidgetLayout.astro";
+import { siteStatsConfig } from "../../config";
+
+const cfg = siteStatsConfig;
+const apiBase = String(cfg.apiBase ?? "").replace(/\/+$/, "");
+const ready = cfg.enable && apiBase.length > 0;
+const detailUrl = (cfg.detailUrl ?? "").trim();
+const Tag = detailUrl ? "a" : "div";
+const linkAttrs = detailUrl ? { href: detailUrl, target: "_blank", rel: "noopener noreferrer" } : {};
+---
+
+{
+	ready && (
+		<WidgetLayout
+			id="site-stats"
+			name={cfg.title}
+			class:list={["site-stats", "cursor-pointer transition-opacity active:scale-95"]}
+		>
+			<Tag {...linkAttrs} class="site-stats__link block">
+				<div class="text-center py-2">
+					<div
+						id="site-stats-pageviews"
+						class="text-3xl font-bold leading-none tabular-nums text-neutral-900 dark:text-neutral-100"
+					>
+						-
+					</div>
+					<div class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">总浏览量</div>
+				</div>
+
+				<div class="grid grid-cols-2 divide-x divide-neutral-200 pt-2 text-center dark:divide-neutral-700">
+					<div class="px-2">
+						<div
+							id="site-stats-visits"
+							class="text-xl font-bold leading-none tabular-nums text-neutral-900 dark:text-neutral-100"
+						>
+							-
+						</div>
+						<div class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">访问数</div>
+					</div>
+					<div class="px-2">
+						<div
+							id="site-stats-visitors"
+							class="text-xl font-bold leading-none tabular-nums text-neutral-900 dark:text-neutral-100"
+						>
+							-
+						</div>
+						<div class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">游客数</div>
+					</div>
+				</div>
+			</Tag>
+		</WidgetLayout>
+	)
+}
+
+<style>
+	/* 数字用等宽字形，滚动时不左右抖 */
+	.site-stats :global(.tabular-nums) {
+		font-variant-numeric: tabular-nums;
+	}
+	/* 失败或未加载完成时保持占位符的灰感，别跟真实数字一样抢眼 */
+	.site-stats :global([data-empty="1"]) {
+		color: color-mix(in oklab, currentColor 35%, transparent);
+	}
+</style>
+
+<script>
+	import { siteStatsConfig } from "../../config";
+
+	const CFG = siteStatsConfig;
+	const BASE = String(CFG.apiBase || "").replace(/\/+$/, "");
+	const CACHE_KEY = "lx-site-stats";
+	const CACHE_TTL = Math.max(1, Number(CFG.cacheMinutes) || 10) * 60 * 1000;
+	const FETCH_TIMEOUT = 8000;
+	const COUNT_DURATION = 2000;
+
+	/** 接口失败时是否用写死的数字撑场面。默认 null = 保持「-」占位（不骗人） */
+	const FALLBACK = CFG.fallbackStats ?? null;
+
+	/** 1234 → 1.2K；1234567 → 1.2M（与原站一致：只保留一位小数） */
+	function formatNumber(num: number): string {
+		if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+		if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+		return String(Math.round(num));
+	}
+
+	const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+	const handles = new WeakMap<HTMLElement, number>();
+
+	/** 从 0 滚到目标值；重复调用会先取消上一段动画 */
+	function animateStat(el: HTMLElement, to: number): void {
+		const prev = handles.get(el);
+		if (prev) cancelAnimationFrame(prev);
+
+		const start = performance.now();
+		const tick = (now: number) => {
+			const progress = Math.min(1, (now - start) / COUNT_DURATION);
+			el.textContent = formatNumber(to * easeOutCubic(progress));
+			if (progress < 1) handles.set(el, requestAnimationFrame(tick));
+		};
+		handles.set(el, requestAnimationFrame(tick));
+	}
+
+	function paint(values: { pageviews: number; visits: number; visitors: number }): void {
+		const map: Array<[string, number]> = [
+			["site-stats-pageviews", values.pageviews],
+			["site-stats-visits", values.visits],
+			["site-stats-visitors", values.visitors],
+		];
+		for (const [id, value] of map) {
+			const el = document.getElementById(id);
+			if (!el) continue;
+			el.removeAttribute("data-empty");
+			animateStat(el, value);
+		}
+	}
+
+	function readCache(): { pageviews: number; visits: number; visitors: number } | null {
+		try {
+			const raw = localStorage.getItem(CACHE_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw);
+			if (!parsed || typeof parsed.at !== "number") return null;
+			if (Date.now() - parsed.at > CACHE_TTL) return null;
+			return { pageviews: parsed.pageviews, visits: parsed.visits, visitors: parsed.visitors };
+		} catch {
+			return null;
+		}
+	}
+
+	function writeCache(values: { pageviews: number; visits: number; visitors: number }): void {
+		try {
+			localStorage.setItem(CACHE_KEY, JSON.stringify({ ...values, at: Date.now() }));
+		} catch {
+			/* 隐私模式下 localStorage 不可写，忽略 */
+		}
+	}
+
+	async function load(): Promise<void> {
+		const cached = readCache();
+		if (cached) {
+			paint(cached);
+			return;
+		}
+
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+		try {
+			const url = `${BASE}/api/stats?hostname=${encodeURIComponent(location.hostname)}`;
+			const res = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const body = await res.json();
+			if (body?.ret !== "OK" || !body.data) throw new Error("bad payload");
+
+			const values = {
+				pageviews: Number(body.data.pageviews) || 0,
+				visits: Number(body.data.visits) || 0,
+				visitors: Number(body.data.visitors) || 0,
+			};
+			writeCache(values);
+			paint(values);
+		} catch {
+			// 统计是装饰性的，挂了也绝不能影响页面
+			if (FALLBACK) paint(FALLBACK);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	let started = false;
+	let observer: IntersectionObserver | null = null;
+
+	function start(): void {
+		if (started) return;
+		started = true;
+		void load();
+	}
+
+	/** 卡片滚进视口才请求（侧边栏折叠 / 小屏时不会白打接口） */
+	function boot(): void {
+		started = false;
+		observer?.disconnect();
+		observer = null;
+
+		for (const el of document.querySelectorAll<HTMLElement>("#site-stats")) {
+			el.querySelectorAll<HTMLElement>("[data-empty], .tabular-nums").forEach((n) => n.setAttribute("data-empty", "1"));
+			if (!("IntersectionObserver" in window)) {
+				start();
+				continue;
+			}
+			observer = new IntersectionObserver(
+				(entries) => {
+					if (entries.some((e) => e.isIntersecting)) {
+						start();
+						observer?.disconnect();
+					}
+				},
+				{ threshold: 0.1 },
+			);
+			observer.observe(el);
+		}
+	}
+
+	/*
+	 * 启动必须放在脚本最后。
+	 * boot() 里用到的 started / observer 是 let 声明，若在声明之前调用会抛
+	 * "Cannot access 'started' before initialization"（TDZ），整段脚本直接挂掉、卡片永远停在「-」。
+	 */
+	if (BASE && CFG.enable) {
+		boot();
+		// Swup 无刷新切页会把侧边栏整块换掉，得重新找元素、重新观察
+		if (window.swup?.hooks) {
+			window.swup.hooks.on("page:view", boot);
+		} else {
+			document.addEventListener("swup:enable", () => {
+				window.swup.hooks.on("page:view", boot);
+			});
+		}
+	}
+</script>

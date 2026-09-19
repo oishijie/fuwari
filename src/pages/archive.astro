@@ -11,6 +11,13 @@ const heatEntries = await getHeatmapEntries();
 ---
 
 <MainGridLayout title={i18n(I18nKey.archive)}>
+    <!-- 热力图：client:only。它只做展示，且（历史原因）在服务端渲染下有兼容性风险，
+         保持纯客户端渲染，坏掉也只是少一块装饰，不影响归档列表。 -->
     <ArchiveHeatmap entries={heatEntries} client:only="svelte"></ArchiveHeatmap>
-    <ArchivePanel sortedPosts={sortedPostsList} client:only="svelte"></ArchivePanel>
+    <!-- 归档列表：client:load，必须由服务端渲染出内容。
+         它曾经是 client:only，服务端只吐一个空 <astro-island>，所有文字都要等浏览器
+          hydrate 才出现 —— 一旦客户端 JS 出问题（或 swup 切页后岛屿没挂上），
+         整页就是空白。改 client:load 之后，服务端直接输出年份与文章列表，
+         客户端只负责 URL 上的 tag/category 筛选。详见 AGENTS.md。 -->
+    <ArchivePanel sortedPosts={sortedPostsList} client:load></ArchivePanel>
 </MainGridLayout>

@@ -5,7 +5,8 @@ import "@fontsource/roboto/700.css";
 
 import ConfigCarrier from "@components/ConfigCarrier.astro";
 import Webviso from "@components/Webviso.astro";
-import { profileConfig, siteConfig, umamiConfig } from "@/config";
+import WelcomeToast from "@components/widget/WelcomeToast.astro";
+import { petConfig, profileConfig, sakanaConfig, siteConfig, umamiConfig } from "@/config";
 import {
 	AUTO_MODE,
 	BANNER_HEIGHT,
@@ -47,6 +48,14 @@ if (!banner || typeof banner !== "string" || banner.trim() === "") {
 banner = siteConfig.banner.src;
 
 const enableBanner = siteConfig.banner.enable;
+// banner 图先到取图服务拿 302、再落到 Bing 的图 CDN，两者都值得预连接
+const bannerOrigin = (() => {
+	try {
+		return new URL(siteConfig.banner.src).origin;
+	} catch {
+		return ""; // 本地相对路径（走 Astro <Image>）没有外部源可预连接
+	}
+})();
 
 let pageTitle: string;
 if (title) {
@@ -151,6 +160,14 @@ const bannerOffset =
 
 		<slot name="head"></slot>
 
+		<!-- banner 图：先到取图服务拿 302，再落到 Bing CDN，预连接省掉两次握手 -->
+		{enableBanner && bannerOrigin && (
+			<>
+				<link rel="preconnect" href={bannerOrigin} />
+				<link rel="preconnect" href="https://cn.bing.com" />
+			</>
+		)}
+
 		<link rel="alternate" type="application/rss+xml" title={profileConfig.name} href={`${Astro.site}rss.xml`}/>
 
 	</head>
@@ -162,6 +179,19 @@ const bannerOffset =
 
 		<!-- increase the page height during page transition to prevent the scrolling animation from jumping -->
 		<div id="page-height-extend" class="hidden h-[300vh]"></div>
+
+		<!-- 桌面宠物宿主：必须落在 Swup 容器（main / #toc）之外，
+		     否则每次切页都会被整块替换，动画与拖拽位置全部丢失 -->
+		{petConfig.enable && <div id="site-pet-host" aria-hidden="true"></div>}
+
+		<!-- 右下角石蒜挂件宿主：同样必须落在 Swup 容器（main / #toc）之外，
+		     否则每次切页都会被整块替换，实例与拖拽状态全部丢失。
+		     宽高由客户端脚本按 sakanaConfig 注入（SDK 的 autoFit 需要确定尺寸的 BFC） -->
+		{sakanaConfig.enable && <div id="sakana-host" class="sakana-host"></div>}
+
+		<!-- 右下角→左下角欢迎浮层宿主：同样必须在 Swup 容器之外，切页才不会被整块替换。
+		     固定定位 + 站点级单例，展示时机由 welcomeConfig.mode 控制 -->
+		<WelcomeToast />
 
 		<!-- Webviso 自托管访问统计（兼容 Swup） -->
 		<Webviso />
@@ -415,6 +445,28 @@ function init() {
 init();
 
 const setup = () => {
+	// 关掉 Swup 的「跨页滚动动画」（@swup/scroll-plugin 默认 animateScroll.betweenPages = true）。
+	// 默认行为：切页时不立即归零，而是等新内容替换完，再用 scrl 做逐帧惯性滚动，
+	// 从「当前阅读位置」缓缓滑回页面顶部 —— 和 DOM 替换、banner 高度变化、侧栏折叠
+	// 挤在同一帧里，读文章读到一半点链接就会明显卡一下。
+	// 这里把跨页这一档改成瞬时归零（scrollTo(0,0)），同页 hash 锚点与前进/后退的
+	// 滚动位置恢复仍由插件负责，不受影响。
+	type ScrollPluginLike = {
+		name?: string
+		options?: { animateScroll?: boolean | { betweenPages?: boolean } }
+	}
+	const swupInstance = window.swup as unknown as { plugins?: ScrollPluginLike[] } | undefined
+	const scrollPlugin = swupInstance?.plugins?.find((p) => p?.name === 'SwupScrollPlugin')
+	const animateScroll = scrollPlugin?.options?.animateScroll
+	if (typeof animateScroll === 'boolean') {
+		// TS 无法从 animateScroll 反推出父级非空，这里显式再判一次
+		if (scrollPlugin?.options) {
+			scrollPlugin.options.animateScroll = false
+		}
+	} else if (animateScroll && typeof animateScroll === 'object') {
+		animateScroll.betweenPages = false
+	}
+
 	// TODO: temp solution to change the height of the banner
 /*
 	window.swup.hooks.on('animation:out:start', () => {
@@ -614,4 +666,309 @@ document.addEventListener("password:decrypted", () => {
 	}
 	createPhotoSwipe()
 })
+</script>
+
+<script>
+	// ===== 站点桌面宠物（CodexPet Embed SDK，public/lib/codex-pet.js）=====
+	// 挂载策略三要点：
+	//   1) 站点级浮层 —— 宿主挂在 Swup 容器（main / #toc）之外，切页不重载、不叠加
+	//   2) 单例守卫 —— Swup 更新 <head> 时可能重跑本脚本，用 window 标志位兜住
+	//   3) 延迟下发 —— 雪碧图 2MB 级，等 load + 空闲再拉，不拖首屏
+	import { petConfig as cfg } from "@/config";
+
+	const BASE = import.meta.env.BASE_URL || "/";
+	const narrow = window.matchMedia("(max-width: 767px)");
+
+	function syncVisibility() {
+		const p = (window as any).sitePet;
+		if (!p) return;
+		if (cfg.hideOnMobile && narrow.matches) p.hide();
+		else p.show();
+	}
+
+	function mountPet() {
+		if (!cfg.enable) return;
+		if ((window as any).__sitePetBooted) return;
+		(window as any).__sitePetBooted = true;
+
+		const base = `${BASE}pets/${cfg.id}/`;
+		const options = {
+			petJson: `${base}pet.json`,
+			spritesheet:
+				cfg.spritesheet && cfg.spritesheet.trim()
+					? cfg.spritesheet.trim()
+					: `${base}spritesheet.webp`,
+			mode: "fixed",
+			position: cfg.position,
+			scale: cfg.scale,
+			speed: cfg.speed,
+			state: cfg.state,
+			margin: cfg.margin,
+			zIndex: cfg.zIndex,
+			draggable: cfg.draggable,
+			clickCycle: cfg.clickCycle,
+			onReady(inst: any) {
+				(window as any).sitePet = inst;
+				syncVisibility();
+			},
+			onError(err: any, inst: any) {
+				// 控制台看得到就够了，不该让访客看到 SDK 注入的调试红框
+				console.warn("[sitePet]", err && err.message);
+				try {
+					inst?.shadow?.querySelector(".cp-error")?.remove();
+				} catch {
+					/* ignore */
+				}
+			},
+		};
+
+		const mount = () => {
+			const w = window as any;
+			if (w.sitePet || !w.CodexPet) return;
+			const host = document.getElementById("site-pet-host") || document.body;
+			w.sitePet = w.CodexPet.mount(host, options);
+			syncVisibility();
+		};
+
+		if ((window as any).CodexPet) {
+			mount();
+		} else {
+			const s = document.createElement("script");
+			s.src = `${BASE}lib/codex-pet.js`;
+			s.async = true;
+			s.onload = mount;
+			document.head.appendChild(s);
+		}
+	}
+
+	function schedulePet() {
+		if (!cfg.enable) return;
+		// 尊重系统的「减少动态效果」偏好
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		// 窄屏不加载：省流量，也不挡正文
+		if (cfg.hideOnMobile && narrow.matches) return;
+		const ric = (window as any).requestIdleCallback;
+		if (typeof ric === "function") ric(mountPet, { timeout: 2500 });
+		else setTimeout(mountPet, 1200);
+	}
+
+	if (document.readyState === "complete") schedulePet();
+	else window.addEventListener("load", schedulePet, { once: true });
+
+	/* 视口在窄/宽之间切换：已加载的只切显隐，没加载的补加载 */
+	narrow.addEventListener("change", () => {
+		if (!cfg.enable) return;
+		if (narrow.matches) (window as any).sitePet?.hide();
+		else if ((window as any).sitePet) (window as any).sitePet.show();
+		else schedulePet();
+	});
+
+	/* 标签页不可见时暂停：否则 requestAnimationFrame 会在后台空转烧 CPU */
+	document.addEventListener("visibilitychange", () => {
+		const p = (window as any).sitePet;
+		if (!p) return;
+		if (document.hidden) p.pause();
+		else p.resume();
+	});
+</script>
+
+<script>
+	// ===== 右下角「石蒜模拟器」挂件（Sakana! Widget，public/lib/sakana-widget.umd.min.js）=====
+	// 与桌面宠物同一套挂载策略：
+	//   1) 站点级浮层 —— 宿主挂在 Swup 容器（main / #toc）之外，切页不重载
+	//   2) 单例守卫 —— Swup 更新 <head> 时可能重跑本脚本，用 window 标志位兜住
+	//   3) 延迟下发 —— 87KB 自包含 UMD（角色图 base64 内联，零外部请求），等 load + 空闲再拉
+	// 参数全部走 SDK 默认（size 200 / 默认物理），只为站内习惯调了层级、位置与关闭语义。
+	// 两个 SDK 特性决定了写法：
+	//   a) mount() 内部会 cloneNode(false) 替换宿主元素 —— 只能按 id 重新取，不能缓存引用；
+	//      好在新宿主会继承 inline style，所以宽度/层级设置不会丢。
+	//   b) 静止时 SDK 自己停帧（_run 里 motion < threshold 即 return），无需额外省电处理。
+	//   c) SDK 顶层往 <head> 注入 <style>，会被 swup 的 head-plugin 在切页时清掉，
+	//      必须打 data-swup-theme 标记 + 切页兜底重挂（见 captureSdkStyle）。
+	import { sakanaConfig as sk } from "@/config";
+
+	const BASE = import.meta.env.BASE_URL || "/";
+	const narrowMq = window.matchMedia("(max-width: 767px)");
+	/* 容器尺寸 = sk.size，且不做任何按视口的降级。
+	   摇摆幅度上限是 maxR = clamp(size/5, 30, 60)：160→32°、200→40°。
+	   所以「挂件小 = 摇得拘谨」，想改手感就调 size，别动这里。 */
+	function getHost(): HTMLElement | null {
+		// mount() 会把宿主替换成克隆体，所以每次都要重新取
+		return document.getElementById("sakana-host");
+	}
+
+	/* 🔴 关键守卫：SDK 在「模块顶层」往 <head> 注入一个 <style>（全部 .sakana-widget-* 规则），
+	   注入一次、永不重注。而本站 swup 开了 updateHead: true -> @swup/head-plugin 在切页时
+	   会 removeChild 掉当前 head 中「新页面 head 里没有」的所有元素，只放过 title 与
+	   [data-swup-theme]。那个 <style> 一旦被删，挂件永久失去样式：
+	     .sakana-widget-img 的 background:50%/cover 退回默认 0% 0%/auto，
+	     角色图按原始像素从左上角裁进 128px 的盒子 —— 那块几乎是透明的，
+	     于是「人物消失、只剩 canvas 画的杆子」。
+	   两道保险：① 打上 data-swup-theme 让 head-plugin 直接放过；
+	             ② 留引用，切页后若真被删了就重新挂回去。 */
+	// 引用挂 window 而不是模块变量：Swup 更新 head 后模块脚本可能被重跑，
+	// 模块级 let 会被重新初始化成 null，window 属性则能跨次保留。
+	function captureSdkStyle() {
+		const w = window as any;
+		if (w.__sakanaStyleEl && document.head.contains(w.__sakanaStyleEl)) return;
+		const found = Array.from(document.head.querySelectorAll("style")).find((el) =>
+			(el.textContent || "").includes("sakana-widget-wrapper"),
+		);
+		if (found) {
+			found.setAttribute("data-swup-theme", "sakana-widget");
+			w.__sakanaStyleEl = found;
+		}
+	}
+
+	function restoreSdkStyle() {
+		const w = window as any;
+		if (!w.__sakanaStyleEl) {
+			captureSdkStyle();
+			return;
+		}
+		if (!document.head.contains(w.__sakanaStyleEl)) document.head.appendChild(w.__sakanaStyleEl);
+	}
+
+	function applyHostBox() {
+		const host = getHost();
+		if (!host) return;
+		const px = sk.size;
+		host.style.width = `${px}px`;
+		host.style.height = `${px}px`;
+		host.style.zIndex = String(sk.zIndex);
+		// autoFit 用 ResizeObserver 观察内部 100% 宽的 wrapper，
+		// 改完宿主尺寸 SDK 会自动重算 size，不必重新 mount
+	}
+
+	// 记住上次的显隐状态：SDK 的 show() 在组件本就没隐藏时会打 console.warn，
+	// 而 mount 后与每次切页都会走这里，所以必须先比对再调。
+	let sakanaHidden = false;
+	function syncSakanaVisibility() {
+		const w = (window as any).sakanaWidget;
+		if (!w) return;
+		const want = !!(sk.hideOnMobile && narrowMq.matches);
+		if (want === sakanaHidden) return;
+		sakanaHidden = want;
+		if (want) w.hide();
+		else w.show();
+	}
+
+	/* 只有挂件真的会出现时才上抬悬浮工具栏（CSS 认 html[data-sakana="on"]） */
+	function syncToolbarLift() {
+		const shown = !!(window as any).sakanaWidget && !(sk.hideOnMobile && narrowMq.matches);
+		if (sk.enable && sk.liftToolbar && shown) {
+			document.documentElement.setAttribute("data-sakana", "on");
+		} else {
+			document.documentElement.removeAttribute("data-sakana");
+		}
+	}
+
+	function mountSakana() {
+		if (!sk.enable) return;
+		if ((window as any).__sakanaBooted) return;
+		(window as any).__sakanaBooted = true;
+
+		const host = getHost();
+		const Sakana = (window as any).SakanaWidget;
+		if (!host || !Sakana) {
+			(window as any).__sakanaBooted = false;
+			return;
+		}
+
+		applyHostBox();
+
+		try {
+			// 全部走 SDK 默认参数（与参考站一致）：默认 size 200、autoFit、默认物理
+			const widget = new Sakana({
+				size: sk.size,
+				autoFit: true, // 按容器缩放，最小 120
+				character: sk.character,
+				controls: sk.controls,
+				rod: sk.rod,
+				draggable: sk.draggable,
+				saveState: sk.saveState,
+				stateKey: "sakana-widget-status",
+			}).mount(host);
+
+			(window as any).sakanaWidget = widget;
+			syncSakanaVisibility();
+			syncToolbarLift();
+			patchCloseButton(widget);
+			captureSdkStyle(); // 给 SDK 注入的 <style> 打免删标记，见上方注释
+		} catch (err) {
+			(window as any).__sakanaBooted = false;
+			console.warn("[sakana]", err && (err as Error).message);
+		}
+	}
+
+	/* 上游默认：点底座关闭按钮 = unmount()（彻底移除）。
+	   这里只做收尾——卸载后把工具栏放回原位，免得下方空出一块；
+	   saveState 仍由配置决定，不干预 SDK 行为。 */
+	function patchCloseButton(widget: any) {
+		const ctrl = getHost()?.querySelector(".sakana-widget-ctrl");
+		const closeBtn = ctrl && ctrl.lastElementChild;
+		if (!closeBtn) return;
+		closeBtn.addEventListener("click", () => {
+			requestAnimationFrame(() => {
+				if (!getHost()?.querySelector(".sakana-widget-wrapper")) {
+					(window as any).sakanaWidget = null;
+					syncToolbarLift();
+				}
+			});
+		});
+	}
+
+	function scheduleSakana() {
+		if (!sk.enable) return;
+		// 尊重系统的「减少动态效果」偏好
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		// 窄屏不加载：省流量，也不挡正文
+		if (sk.hideOnMobile && narrowMq.matches) return;
+		const ric = (window as any).requestIdleCallback;
+		if (typeof ric === "function") ric(bootSakana, { timeout: 2500 });
+		else setTimeout(bootSakana, 1200);
+	}
+
+	function bootSakana() {
+		if (!sk.enable) return;
+		const w = window as any;
+		if (w.SakanaWidget) {
+			mountSakana();
+			return;
+		}
+		if (w.__sakanaLoading) return;
+		w.__sakanaLoading = true;
+		const s = document.createElement("script");
+		s.src = `${BASE}lib/sakana-widget.umd.min.js`;
+		s.async = true;
+		s.onload = () => {
+			w.__sakanaLoading = false;
+			mountSakana();
+		};
+		s.onerror = () => {
+			w.__sakanaLoading = false;
+			console.warn("[sakana] SDK 加载失败");
+		};
+		document.head.appendChild(s);
+	}
+
+	if (document.readyState === "complete") scheduleSakana();
+	else window.addEventListener("load", scheduleSakana, { once: true });
+
+	/* 视口跨断点：已加载的只切显隐，没加载的补加载；矮屏切换时改宿主尺寸 */
+	narrowMq.addEventListener("change", () => {
+		if (!sk.enable) return;
+		if ((window as any).sakanaWidget) syncSakanaVisibility();
+		else if (!narrowMq.matches) scheduleSakana();
+		syncToolbarLift();
+	});
+
+	/* Swup 切页后：<html> 属性可能被上游脚本改写，且 head-plugin 可能清掉 SDK 的 <style>，
+	   所以这里既重新断言工具栏状态，也兜底把样式挂回去。 */
+	document.addEventListener("swup:page:view", () => {
+		if (!sk.enable) return;
+		applyHostBox();
+		syncToolbarLift();
+		restoreSdkStyle();
+	});
 </script>

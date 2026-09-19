@@ -1,0 +1,47 @@
+{
+  // Bing 每日壁纸 → 博客 banner 的取图服务
+  // 前端：src/config.ts → siteConfig.banner.src
+  //
+  // 只干一件事：边缘缓存着调一次 Bing 官方元数据 API，然后 302 到当天图片。
+  // 图片流量不经过本 Worker（浏览器直连 Bing CDN），免费额度无压力。
+  "name": "blog-bing-banner",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-07-03",
+
+  // ===== 可观测性 =====
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    }
+  },
+
+  // ===== 自定义域名 =====
+  // workers.dev 在中国大陆被 DNS 污染，直连不通，必须走自有域名。
+  // custom_domain: true 会让 wrangler 自动创建 DNS 记录与证书。
+  "routes": [
+    {
+      "pattern": "bing.142588.xyz",
+      "custom_domain": true
+    }
+  ],
+
+  // ===== 非敏感配置（明文，可入库）=====
+  "vars": {
+    // Bing 市场：zh-CN 出中文文案，en-US 出英文
+    "BING_MKT": "zh-CN",
+    // 向 Bing 请求的尺寸（banner 是 65vh 全宽大图，1920x1080 约 0.23 MB）
+    "IMG_WIDTH": "1920",
+    "IMG_HEIGHT": "1080",
+    // 跳转 / 元数据缓存秒数，默认 1 小时
+    "CACHE_SECONDS": "3600",
+    // Bing 失败时的兜底图。托管在自己的图床（Unsplash License 的山峦云海图）。
+    // Worker 会先 HEAD 探活：图床也挂 → 自动退回下面的内置 SVG，所以这一项配错也不会白板。
+    "FALLBACK_URL": "https://imgbed.058823.xyz/file/1789826835210_bing-banner-fallback.webp",
+    // CORS 白名单，逗号分隔（只有 /meta 需要跨域）
+    "ALLOWED_ORIGINS": "https://blog.142588.xyz,http://localhost:4321,http://127.0.0.1:4321"
+  }
+}

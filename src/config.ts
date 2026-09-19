@@ -4,10 +4,15 @@ import type {
 	CommentConfig,
 	ExpressiveCodeConfig,
 	LicenseConfig,
+	MusicConfig,
 	NavBarConfig,
+	PetConfig,
 	ProfileConfig,
+	SakanaConfig,
 	SiteConfig,
+	SiteStatsConfig,
 	UmamiConfig,
+	WelcomeConfig,
 } from "./types/config";
 import { LinkPreset } from "./types/config";
 
@@ -21,13 +26,16 @@ export const siteConfig: SiteConfig = {
 		fixed: false, // Hide the theme color picker for visitors
 	},
 	banner: {
-		enable: false,
-		src: "assets/images/demo-banner.png", // Relative to the /src directory. Relative to the /public directory if it starts with '/'
+		enable: true,
+		// Bing 每日壁纸：由自建 Worker 302 转发到当天图片（见 workers/bing-banner/）
+		// 远程 http(s) 地址走普通 <img> 直出，Astro 不会在构建时下载固化 → 每天自动变，无需重新构建
+		src: "https://bing.142588.xyz/today", // Relative to the /src directory. Relative to the /public directory if it starts with '/'
 		position: "center", // Equivalent to object-position, only supports 'top', 'center', 'bottom'. 'center' by default
 		credit: {
-			enable: false, // Display the credit text of the banner image
-			text: "", // Credit text to be displayed
-			url: "", // (Optional) URL link to the original artwork or artist's page
+			enable: true, // Display the credit text of the banner image
+			// 以下两项是兜底值，页面加载后会用 /meta 拿到的当天署名与链接覆盖
+			text: "Bing 每日壁纸", // Credit text to be displayed
+			url: "https://www.bing.com", // (Optional) URL link to the original artwork or artist's page
 		},
 	},
 	toc: {
@@ -62,17 +70,17 @@ export const navBarConfig: NavBarConfig = {
 			external: false,
 		},
 		{
-			name: "开往",
-			url: "https://www.travellings.cn/typewriter.html", // 内部链接不应包含基本路径，因为它是自动添加的
-			external: true, // 显示外部链接图标，并将在新选项卡中打开
-		},
-		{
 			name: "其他", // 二级菜单
 			url: "#", // 内部链接不应包含基本路径，因为它是自动添加的
 			children: [
 				{
 					name: "主页",
 					url: "https://home.142588.xyz", // 个人主页门户
+					external: true, // 显示外部链接图标，并将在新选项卡中打开
+				},
+				{
+					name: "开往",
+					url: "https://www.travellings.cn/typewriter.html", // 开往（Travellings）：随机跳到友站
 					external: true, // 显示外部链接图标，并将在新选项卡中打开
 				},
 			],
@@ -150,9 +158,91 @@ export const webvisoConfig = {
 	uvId: "webviso-uv", // 显示 UV 的元素 id
 };
 
+// 侧边栏「访问统计」卡片：整站汇总（总浏览量 / 访问数 / 游客数）
+// 和 webvisoConfig 是同一个自托管后端（源码见 workers/analytics/）：
+//   webvisoConfig 记的是「当前这一页」，这张卡片看的是「整站」
+// 换域名时这两个 baseUrl 要一起改
+export const siteStatsConfig: SiteStatsConfig = {
+	enable: true,
+	apiBase: "https://webana.142588.xyz",
+	title: "统计",
+	detailUrl: "", // 留空 = 卡片不可点；填了会新窗口打开
+	cacheMinutes: 10, // 同一访客 10 分钟内只打一次接口
+	fallbackStats: null, // 接口挂了保持「-」占位，不编数字
+};
+
 // 自建评论系统（Cloudflare Workers + D1，源码见 workers/comments/）
 // 部署完成后，把 Worker 地址填到 apiBase，末尾不要带斜杠
 export const commentConfig: CommentConfig = {
 	enable: true, // 是否启用评论
 	apiBase: "https://comments.142588.xyz", // Cloudflare Worker 后端地址
+};
+
+// 站点桌面宠物（Codex 宠物包 + 无依赖 SDK，见 public/lib/codex-pet.js）
+// 换角色：把新宠物包放进 public/pets/<id>/（pet.json + spritesheet.webp），改下面的 id 即可
+// 关掉：enable 设为 false
+export const petConfig: PetConfig = {
+	enable: false, // 2026-09-18 按用户要求先关停（代码与资源全部保留，改回 true 即恢复）
+	id: "firefly", // 流萤；可选 fufu-sticker / ganyu-pet-v2 / rich-paimon（须自备资源）
+	spritesheet: "", // 留空 = /pets/<id>/spritesheet.webp
+	scale: 0.5, // 0.5 → 96×104 px
+	speed: 120, // 毫秒/帧
+	position: "bottom-left", // 左下角（右下角已被悬浮工具栏占用）
+	margin: 18,
+	state: "idle",
+	zIndex: 40, // 低于悬浮工具栏(50)与目录抽屉(60)
+	draggable: true,
+	clickCycle: true,
+	hideOnMobile: true,
+};
+
+// 右下角「石蒜模拟器」挂件（Sakana! Widget，MIT 代码 + 角色插画不可商用，见 public/lib/LICENSE-sakana-widget.txt）
+// 玩法：按住立牌拖动、松手弹跳；底座控制栏依次为 切换角色 / 自走模式 / 上游仓库 / 关闭
+// 换角色：改 character 为 chisato 或 takina；关掉：enable 设为 false
+export const sakanaConfig: SakanaConfig = {
+	enable: true,
+	character: "chisato", // 千束；takina 为泷奈
+	size: 200, // SDK 默认值；容器与组件同尺寸（人物图 = size/1.25 = 160px，canvas = size×1.5 = 300px）
+	controls: true,
+	rod: true,
+	draggable: true,
+	saveState: false, // false = 点关闭仅本次移除，刷新恢复
+	zIndex: 40, // 低于悬浮工具栏(50)与目录抽屉(60)，与桌面宠物同层
+	hideOnMobile: true,
+	liftToolbar: true, // 挂件会占用右下角底部，自动上抬悬浮工具栏
+};
+
+// 悬浮工具栏里的音乐播放器（复刻自 v-blog.halei0v0.top，自研单例 store + 原生 DOM，不用任何播放器库）
+// 两种取源：
+//   meting —— 走第三方 Meting API（返回 JSON 歌单，音频地址是 meting 自己的 type=url 端点，靠 302 跳真实 CDN）
+//   local  —— 用下面的 localPlaylist，音频文件放 public/ 或图床
+// ⚠️ meting 模式依赖第三方服务（默认的 meting.mysqil.com 实测可用且带 CORS *），随时可能失效；
+//    换歌单只改 id；想让音乐彻底归自己管，就把 mode 改成 "local" 并自备音频。
+export const musicConfig: MusicConfig = {
+	enable: true,
+	mode: "meting",
+	metingApi: "https://meting.mysqil.com/api?server=:server&type=:type&id=:id&auth=:auth&r=:r",
+	id: "14164869977", // 网易云歌单 id（music.163.com 地址里 playlist?id= 后面那串）
+	server: "netease", // netease / tencent / kugou / xiami / baidu
+	type: "playlist", // playlist / album / song / artist / search
+	localPlaylist: [
+		// mode = "local" 时的曲目表，形如：
+		// { id: 1, title: "曲名", artist: "艺术家", cover: "/music/cover.webp", url: "/music/song.mp3", duration: 0 },
+	],
+	volume: 0.7, // 初始音量；访客调过之后以 localStorage 为准
+	autoplay: false, // 自动播放多半会被浏览器拦，被拦后等首次点击补播
+};
+
+// 右下角「欢迎提示」浮层（替代原侧边栏距离卡）
+// 数据链路：浏览器 -> 自建评论 Worker /geo（Cloudflare 边缘数据 + 国内 IP 库补正到区级）
+//   ⚠️ 只有中国大陆 IP 才会去查国内库；境外 IP 直接用边缘数据——实测国内库对境外 IP 会瞎报（8.8.8.8 被说成英国）。
+//   ⚠️ 访客在代理 / VPN 后面时，服务端看到的是代理出口 IP，这是任何服务端方案都解不了的死结。
+// mode：once = 每个标签页会话只弹一次（sessionStorage）/ home = 仅首页 / always = 每次页面加载都弹
+export const welcomeConfig: WelcomeConfig = {
+	enable: true,
+	mode: "once",
+	duration: 6000,
+	homeLat: 26.0745, // 福州市
+	homeLon: 119.2965,
+	showIp: true,
 };

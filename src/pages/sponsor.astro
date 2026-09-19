@@ -29,7 +29,7 @@ const formatDate = (value?: string): string => {
 ---
 
 <MainGridLayout title="赞赏支持" description={`感谢你对 ${siteConfig.title} 的支持`}>
-    <div class="card-base p-6 md:p-8">
+    <div class="card-base sponsor-page p-6 md:p-8">
 
         <!-- 页头 -->
         <header class="mb-10">
@@ -167,6 +167,17 @@ const formatDate = (value?: string): string => {
 </MainGridLayout>
 
 <style>
+/* 文字色：全局 --deep-text 只定义了浅色模式的值（oklch(0.25) 深色字），
+   而本页卡片在暗色模式下也是深底 —— 直接引用就是深底深字、整片看不清
+   （「几点说明」曾整段看不见）。这里派生一个页面级变量，暗色换浅字，
+   下面各处统一引用，透明度混合照旧。 */
+.sponsor-page {
+    --sponsor-text: var(--deep-text);
+}
+:global(:root.dark) .sponsor-page {
+    --sponsor-text: oklch(0.95 0.008 var(--hue));
+}
+
 /* ===== 收款码 ===== */
 .sponsor-qr-grid {
     display: flex;
@@ -242,12 +253,12 @@ const formatDate = (value?: string): string => {
 .sponsor-qr-name {
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--deep-text);
+    color: var(--sponsor-text);
 }
 
 .sponsor-qr-hint {
     font-size: 0.75rem;
-    color: color-mix(in oklab, var(--deep-text), transparent 45%);
+    color: color-mix(in oklab, var(--sponsor-text), transparent 45%);
 }
 
 /* ===== 鸣谢名单 ===== */
@@ -325,7 +336,7 @@ const formatDate = (value?: string): string => {
 .sponsor-name {
     font-size: 0.875rem;
     font-weight: 700;
-    color: var(--deep-text);
+    color: var(--sponsor-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -334,7 +345,7 @@ const formatDate = (value?: string): string => {
 .sponsor-message {
     font-size: 0.75rem;
     line-height: 1.5;
-    color: color-mix(in oklab, var(--deep-text), transparent 40%);
+    color: color-mix(in oklab, var(--sponsor-text), transparent 40%);
     overflow: hidden;
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -346,7 +357,7 @@ const formatDate = (value?: string): string => {
     align-self: flex-start;
     font-size: 0.6875rem;
     font-variant-numeric: tabular-nums;
-    color: color-mix(in oklab, var(--deep-text), transparent 58%);
+    color: color-mix(in oklab, var(--sponsor-text), transparent 58%);
 }
 
 .sponsor-link {
@@ -394,7 +405,7 @@ const formatDate = (value?: string): string => {
     gap: 10px;
     font-size: 0.8125rem;
     line-height: 1.7;
-    color: color-mix(in oklab, var(--deep-text), transparent 22%);
+    color: color-mix(in oklab, var(--sponsor-text), transparent 22%);
 }
 
 /* 与图标容器等宽的左缩进：40px 圆底 + 12px 间距 */

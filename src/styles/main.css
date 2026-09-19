@@ -65,6 +65,25 @@
         background: color-mix(in oklab, var(--primary), transparent 90%);
     }
 
+    /* 右下角「石蒜模拟器」挂件（Sakana! Widget）宿主。
+       必须是 BFC 且有确定尺寸：SDK 的 autoFit 靠 ResizeObserver 量它的大小；
+       宽高与 z-index 由客户端脚本按 sakanaConfig 注入 inline style，这里只管定位。
+       pointer-events:none 不可省略——挂件自身的立牌与控制栏才是可点区域，
+       否则卸载后这个 fixed 空盒会挡住右下角一大片点击。 */
+    .sakana-host {
+        @apply fixed pointer-events-none;
+        right: 1rem;
+        bottom: 1rem;
+        /* 层级：正文 0 < 浮层 40 < 工具栏 50 < 遮罩 55 < 抽屉 60 */
+        z-index: 40;
+    }
+
+    @media (min-width: 1024px) {
+        .sakana-host {
+            right: 1.5rem;
+        }
+    }
+
     .link-underline {
         @apply transition underline decoration-2 decoration-dashed decoration-[var(--link-underline)]
         hover:decoration-[var(--link-hover)] active:decoration-[var(--link-active)] underline-offset-[0.25rem]

@@ -7,7 +7,7 @@
  *   GET    /api/comments/count?slugs=a,b,c  批量统计评论数
  *   POST   /api/comments                    发表评论
  *   DELETE /api/comments/:id                删除评论（需 Authorization: Bearer <ADMIN_TOKEN>）
- *   GET    /geo                             访客自己的 IP 地理信息（Cloudflare 边缘数据，仅返回给本人）
+ *   GET    /geo                             访客地理信息（边缘数据 + 国内 IP 库补正到区级，仅返回给本人）
  *   GET    /health                          健康检查
 *   POST   /api/summary                     文章 AI 摘要（Workers AI 生成 + D1 缓存）
  */
@@ -435,19 +435,182 @@ async function deleteComment(path: string, req: Request, env: Env, cors: Headers
 
 // ---------------------------------------------------------------- 入口
 
-/** 访客地理信息：直接读 Cloudflare 边缘注入的 request.cf，仅返回给访客本人 */
-function geoLookup(request: Request, cors: Headers): Response {
+// ---------------------------------------------------------- 访客地理信息
+
+/**
+ * 国内 IP 库查出来的归属地明细。
+ * Cloudflare 的 request.cf 在中国常常只到省市两级，甚至把整段 IP 判到一个城市
+ * （实测：本机教育网出口被 CF 判成「广东·广州」，实际在福建福州）。
+ * 所以拿到访客 IP 后，再去国内库查一次，把精度补到区级并拿到更可靠的经纬度。
+ */
+interface GeoDetail {
+	/** 可直接展示的中文地址，如「福建省福州市仓山区」 */
+	locationText: string;
+	province: string;
+	city: string;
+	district: string;
+	lat: number;
+	lon: number;
+	/** 实际生效的数据源，便于线上排查 */
+	source: string;
+}
+
+/** 上游超时：国内库偶尔抽风，不能让 /geo 拖住页面 */
+const GEO_TIMEOUT_MS = 3000;
+
+async function fetchGeoUpstream(url: string): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), GEO_TIMEOUT_MS);
+	try {
+		return await fetch(url, {
+			signal: controller.signal,
+			headers: { "user-agent": "Mozilla/5.0 (compatible; blog-geo/1.0)" },
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** 从「中国福建省福州市仓山区」这类整串里切出省 / 市 / 区；切不出就留空，不抛错 */
+function splitCnAddress(raw: string): { province: string; city: string; district: string } {
+	const s = raw.replace(/^中国/, "").replace(/[·\s]/g, "");
+	const p = s.match(/^(.*?(?:省|自治区|特别行政区)|香港|澳门|台湾)/);
+	const rest = p ? s.slice(p[1].length) : s;
+	const c = rest.match(/^(.*?(?:市|自治州|地区|盟))/);
+	const after = c ? rest.slice(c[1].length) : rest;
+	const d = after.match(/^(.*?(?:区|县|市|旗))/);
+	return { province: p?.[1] ?? "", city: c?.[1] ?? "", district: d?.[1] ?? "" };
+}
+
+/**
+ * 粗筛：国内库对境外 IP 会瞎报（实测 8.8.8.8 被它说成「英国」），
+ * 坐标不落在中国境内就直接判为不可信，让调用方走下一个源。
+ */
+function inChinaBbox(lat: number, lon: number): boolean {
+	return Number.isFinite(lat) && Number.isFinite(lon) && lat > 3 && lat < 54 && lon > 73 && lon < 136;
+}
+
+/** 主源 v2.xxapi.cn：免费、无 key、支持 ?ip= 查任意 IP，返回区级地址 + 经纬度 */
+async function lookupViaXxapi(ip: string): Promise<GeoDetail | null> {
+	const res = await fetchGeoUpstream(`https://v2.xxapi.cn/api/ip?ip=${encodeURIComponent(ip)}`);
+	if (!res.ok) return null;
+	const body = (await res.json()) as { code?: number; data?: Record<string, unknown> };
+	const d = body.data;
+	if (body.code !== 200 || !d) return null;
+	const address = typeof d.address === "string" ? d.address : "";
+	if (!address) return null;
+	const parts = splitCnAddress(address);
+	const lat = Number.parseFloat(String(d.lat ?? ""));
+	const lon = Number.parseFloat(String(d.lng ?? ""));
+	const joined = parts.province + parts.city + parts.district;
+	if (!inChinaBbox(lat, lon)) return null;
+	return {
+		locationText: joined || address.replace(/^中国/, ""),
+		province: parts.province,
+		city: parts.city,
+		district: parts.district,
+		lat,
+		lon,
+		source: "xxapi",
+	};
+}
+
+/** 备源 ip-api.com：免费、无 key、自带中文与坐标，主源挂掉时顶上 */
+async function lookupViaIpApi(ip: string): Promise<GeoDetail | null> {
+	const res = await fetchGeoUpstream(
+		`http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=status,country,regionName,city,lat,lon`,
+	);
+	if (!res.ok) return null;
+	const d = (await res.json()) as Record<string, unknown>;
+	if (d.status !== "success") return null;
+	const province = typeof d.regionName === "string" ? d.regionName : "";
+	const city = typeof d.city === "string" ? d.city : "";
+	const lat = typeof d.lat === "number" ? d.lat : Number.NaN;
+	const lon = typeof d.lon === "number" ? d.lon : Number.NaN;
+	if (!province && !city) return null;
+	if (!inChinaBbox(lat, lon)) return null;
+	return {
+		locationText: province + city,
+		province,
+		city,
+		district: "",
+		lat,
+		lon,
+		source: "ip-api",
+	};
+}
+
+/**
+ * 访客地理信息（只返回给访客本人）。
+ * 两级数据源：request.cf（边缘自带，永远有）→ 国内库补细（仅中国大陆 IP，补到区级 + 更准的经纬度）。
+ * 国内库全部失败时不报错，原样退回边缘数据，前端照常能算距离。
+ */
+async function geoLookup(request: Request, cors: Headers): Promise<Response> {
 	const cf = (request.cf ?? {}) as Record<string, unknown>;
 	const str = (v: unknown) => (typeof v === "string" ? v : "");
-	const payload = {
-		ip: request.headers.get("CF-Connecting-IP") ?? "",
-		country: str(cf.country),
+	const num = (v: unknown) => {
+		const n = Number.parseFloat(str(v));
+		return Number.isFinite(n) ? n : null;
+	};
+
+	const ip = request.headers.get("CF-Connecting-IP") ?? "";
+	const cfView = {
 		province: str(cf.region),
 		city: str(cf.city),
-		lat: Number.parseFloat(str(cf.latitude)),
-		lon: Number.parseFloat(str(cf.longitude)),
+		lat: num(cf.latitude),
+		lon: num(cf.longitude),
 	};
-	return json(payload, 200, cors);
+
+	let detail: GeoDetail | null = null;
+	// 国内库只对中国大陆 IP 有意义：它对中国 IP 能到区级，对境外 IP 反而离谱
+	const isMainland = str(cf.country) === "CN";
+	if (ip && isMainland) {
+		for (const lookup of [lookupViaXxapi, lookupViaIpApi]) {
+			try {
+				detail = await lookup(ip);
+			} catch {
+				detail = null;
+			}
+			if (detail) break;
+		}
+	}
+
+	// cf 那一份一并返回：前端可据此判断访客是否走了代理，线上排查也不用再猜
+	if (detail) {
+		return json(
+			{
+				ip,
+				source: detail.source,
+				country: str(cf.country) || "CN",
+				province: detail.province,
+				city: detail.city,
+				district: detail.district,
+				locationText: detail.locationText,
+				lat: Number.isFinite(detail.lat) ? detail.lat : cfView.lat,
+				lon: Number.isFinite(detail.lon) ? detail.lon : cfView.lon,
+				cf: cfView,
+			},
+			200,
+			cors,
+		);
+	}
+
+	return json(
+		{
+			ip,
+			source: "cf",
+			country: str(cf.country),
+			province: cfView.province,
+			city: cfView.city,
+			district: "",
+			locationText: "",
+			lat: cfView.lat,
+			lon: cfView.lon,
+			cf: cfView,
+		},
+		200,
+		cors,
+	);
 }
 
 export default {
@@ -477,7 +640,7 @@ export default {
 				return await generateSummary(request, env, cors);
 			}
 			if (path === "/geo" && request.method === "GET") {
-				return geoLookup(request, cors);
+				return await geoLookup(request, cors);
 			}
 			if (path === "/" || path === "/health") {
 				return json({ ok: true, service: "blog-comments" }, 200, cors);

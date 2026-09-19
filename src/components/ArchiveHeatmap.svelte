@@ -4,7 +4,6 @@
  * 布局：每年一行 × 53 周，每格 = 一周的更新字数，格子宽度自适应铺满容器
  * 交互：右侧 Less/More 色阶图例；年份多于 3 个时左上角出现 ↺ 按钮往前翻页
  */
-import Icon from "@iconify/svelte";
 import { onDestroy } from "svelte";
 
 export let entries: { date: string; words: number }[] = [];
@@ -106,7 +105,7 @@ onDestroy(() => {
                 <span class="legend-label">Words per week</span>
                 {#if years.length > YEARS_SHOWN}
                     <button class="year-trigger" aria-label="切换年份" on:click={shiftYears}>
-                        <Icon icon="material-symbols:history" class="year-trigger-icon" />
+<svg class="year-trigger-icon" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21q-3.45 0-6.012-2.287T3.05 13H5.1q.35 2.6 2.313 4.3T12 19q2.925 0 4.963-2.037T19 12t-2.037-4.962T12 5q-1.725 0-3.225.8T6.25 8H9v2H3V4h2v2.35q1.275-1.6 3.113-2.475T12 3q1.875 0 3.513.713t2.85 1.924t1.925 2.85T21 12t-.712 3.513t-1.925 2.85t-2.85 1.925T12 21m2.8-4.8L11 12.4V7h2v4.6l3.2 3.2z"/></svg>
                     </button>
                 {/if}
             </div>

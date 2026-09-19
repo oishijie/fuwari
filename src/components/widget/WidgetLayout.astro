@@ -22,9 +22,11 @@ const className = Astro.props.class;
         <slot></slot>
     </div>
     {isCollapsed && <div class="expand-btn px-4 -mb-2">
-        <button class="btn-plain rounded-lg w-full h-9">
+        <button type="button" class="btn-plain rounded-lg w-full h-9" aria-expanded="false" aria-controls={id}>
             <div class="text-[var(--primary)] flex items-center justify-center gap-2 -translate-x-2">
-                <Icon name="material-symbols:more-horiz" class="text-[1.75rem]"></Icon> {i18n(I18nKey.more)}
+                <span class="expand-icon"><Icon name="material-symbols:expand-more" class="text-[1.75rem]"></Icon></span>
+                <span class="expand-label-more">{i18n(I18nKey.more)}</span>
+                <span class="expand-label-less">{i18n(I18nKey.less)}</span>
             </div>
         </button>
     </div>}
@@ -33,6 +35,26 @@ const className = Astro.props.class;
 <style define:vars={{ collapsedHeight }}>
     .collapsed {
         height: var(--collapsedHeight);
+    }
+
+    /* 展开态：按钮常驻，只切箭头方向与文案。
+       🔴 早先的实现是点一次就给 .expand-btn 加 `hidden`，按钮永久消失 ——
+       于是「更多」只能展开、再也收不回去。 */
+    .expand-label-less {
+        display: none;
+    }
+    .expand-icon {
+        display: inline-flex;
+        transition: transform 0.25s ease;
+    }
+    .expand-btn.expanded .expand-icon {
+        transform: rotate(180deg);
+    }
+    .expand-btn.expanded .expand-label-more {
+        display: none;
+    }
+    .expand-btn.expanded .expand-label-less {
+        display: inline;
     }
 </style>
 
@@ -46,11 +68,26 @@ const className = Astro.props.class;
 
             const id = this.dataset.id;
             const btn = this.querySelector('.expand-btn');
-            const wrapper = this.querySelector(`#${id}`)
-            btn!.addEventListener('click', () => {
-                wrapper!.classList.remove('collapsed');
-                btn!.classList.add('hidden');
-            })
+            const wrapper = this.querySelector(`#${id}`);
+            if (!btn || !wrapper) return;
+
+            const button = btn.querySelector('button');
+            let expanded = false;
+
+            // 状态只写在 DOM 上（类名），这样即便本元素被重新 upgrade
+            // 或经历浏览器前进/后退的页面缓存，视觉与状态也始终一致。
+            const sync = () => {
+                wrapper.classList.toggle('collapsed', !expanded);
+                btn.classList.toggle('expanded', expanded);
+                if (button) button.setAttribute('aria-expanded', String(expanded));
+            };
+
+            btn.addEventListener('click', () => {
+                expanded = !expanded;
+                sync();
+            });
+
+            sync();
         }
     }
 

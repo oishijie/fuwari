@@ -38,6 +38,8 @@ const {
 const hasBannerCredit =
 	siteConfig.banner.enable && siteConfig.banner.credit.enable;
 const hasBannerLink = !!siteConfig.banner.credit.url;
+// banner 图是自建 Worker 的动态跳转（…/today），署名去同一个服务的 /meta 取
+const bannerMetaUrl = siteConfig.banner.src.replace(/\/today\/?$/, "/meta");
 
 const mainPanelTop = siteConfig.banner.enable
 	? `calc(${BANNER_HEIGHT}vh - ${MAIN_PANEL_OVERLAPS_BANNER_HEIGHT}rem)`
@@ -50,16 +52,19 @@ const mainPanelTop = siteConfig.banner.enable
 <slot slot="head" name="head"></slot>
 
 <!-- 侧栏折叠状态：必须在本布局的网格渲染之前同步写入 <html data-sidebar>，
-     否则首屏会先按默认布局绘制再跳变。脚本位于 grid 之前，因此是同步执行的。 -->
-<script is:inline define:vars={{ sidebarCollapsible: sidebarCollapsible === true }}>
+     否则首屏会先按默认布局绘制再跳变。脚本位于 grid 之前，因此是同步执行的。
+     ⚠️ 本脚本在 swup 容器之外，切页**不会重跑**，所以「当前页是否支持折叠」
+     不能用 Astro 编译期注入的常量（它被固化成首屏那一份的值），
+     只能在运行时读 DOM 标记 —— 见 supportsCollapse()。 -->
+<script is:inline>
 (function () {
-    var COLLAPSIBLE = sidebarCollapsible;
     var KEY = 'sidebar-expanded';
     var root = document.documentElement;
 
     // 判断是不是文章页：一律用「目标 URL」而不是 window.location。
     // swup 的 content:replace / page:view 触发时地址栏可能还没更新，
-    // 读 location 会拿到上一页的路径，状态就错成 off（这就是「要刷新才生效」的根因之一）。
+    // 读 location 会拿到上一页的路径。
+    // 注意这只是首屏的兜底手段，主依据是下面的 DOM 标记。
     function isPostUrl(u) {
         var p;
         try { p = new URL(u || location.href, location.origin).pathname; }
@@ -75,9 +80,25 @@ const mainPanelTop = siteConfig.banner.enable
         try { sessionStorage.setItem(KEY, v ? '1' : '0'); } catch (e) { /* 隐私模式下忽略 */ }
     }
 
+    // 🔴 「本页可不可折叠」的**唯一真值来源**是 DOM 标记，它由本布局渲染在
+    //    #content-wrapper（位于 <main id="swup-container"> 内部）上：
+    //    swup 的容器是 ["main", "#toc"]，切页只换 main 的**内容** ——
+    //    标记跟着新页面出现/消失，而 sidebar 与 #main-grid 本身从不被重建。
+    function marked() {
+        return !!document.querySelector('[data-sidebar-collapsible]');
+    }
+
+    function supportsCollapse(u) {
+        if (marked()) return true;
+        // main 已经在 DOM 里但没带标记 → 本页不支持折叠（首页 / 归档 / 关于 …）
+        if (document.getElementById('swup-container')) return false;
+        // 首屏：本脚本同步执行于网格之前，<main> 还没解析出来，只能按路径兜底
+        return isPostUrl(u);
+    }
+
     // collapsed = 折叠（默认） / expanded = 用户手动展开 / off = 本页不适用
     function stateFor(u) {
-        if (!COLLAPSIBLE || !isPostUrl(u)) return 'off';
+        if (!supportsCollapse(u)) return 'off';
         return readPref() ? 'expanded' : 'collapsed';
     }
 
@@ -116,7 +137,7 @@ const mainPanelTop = siteConfig.banner.enable
         if (!btn || bound) return;
         bound = true;
         btn.addEventListener('click', function () {
-            if (!isPostUrl(location.href)) return;
+            if (!supportsCollapse(location.href)) return;
             var expanded = readPref();
             writePref(!expanded);
             syncButton();
@@ -175,6 +196,29 @@ const mainPanelTop = siteConfig.banner.enable
     </ImageWrapper>
 </div>}
 
+<!-- Banner credit：把兜底文案换成当天的摄影师署名（数据来自自建 Worker 的 /meta） -->
+<!-- Banner 在 Swup 容器之外，切页不重建，所以只需首次加载跑一次 -->
+<script>
+	(function () {
+		const el = document.getElementById("banner-credit");
+		const textEl = document.getElementById("banner-credit-text");
+		if (!el || !textEl) return;
+		const metaUrl = el.getAttribute("data-meta");
+		if (!metaUrl) return;
+		fetch(metaUrl)
+			.then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+			.then((res) => {
+				const d = res && res.data;
+				if (!d) return;
+				if (d.credit) textEl.textContent = d.credit;
+				if (d.creditUrl) el.setAttribute("href", d.creditUrl);
+			})
+			.catch(() => {
+				// 拿不到就保留兜底文案，不影响 banner 本身
+			});
+	})();
+</script>
+
 <!-- Main content -->
 <div class="absolute w-full z-30 pointer-events-none" style={`top: ${mainPanelTop}`}>
     <!-- The pointer-events-none here prevent blocking the click event of the TOC -->
@@ -183,12 +227,12 @@ const mainPanelTop = siteConfig.banner.enable
     mx-auto gap-4 px-0 md:px-4"
         >
             <!-- Banner image credit -->
-            {hasBannerCredit && <a href={siteConfig.banner.credit.url} id="banner-credit" target="_blank" rel="noopener" aria-label="Visit image source"
+            {hasBannerCredit && <a href={siteConfig.banner.credit.url} id="banner-credit" data-meta={bannerMetaUrl} target="_blank" rel="noopener" aria-label="Visit image source"
                                    class:list={["group onload-animation transition-all absolute flex justify-center items-center rounded-full " +
                                    "px-3 right-4 -top-[3.25rem] bg-black/60 hover:bg-black/70 h-9", {"hover:pr-9 active:bg-black/80": hasBannerLink}]}
             >
                 <Icon class="text-white/75 text-[1.25rem] mr-1" name="material-symbols:copyright-outline-rounded" ></Icon>
-                <div class="text-white/75 text-xs">{siteConfig.banner.credit.text}</div>
+                <div id="banner-credit-text" class="text-white/75 text-xs">{siteConfig.banner.credit.text}</div>
                 <Icon class:list={["transition absolute text-[oklch(0.75_0.14_var(--hue))] right-4 text-[0.75rem] opacity-0",
                     {"group-hover:opacity-100": hasBannerLink}]}
                       name="fa6-solid:arrow-up-right-from-square">
@@ -199,7 +243,9 @@ const mainPanelTop = siteConfig.banner.enable
             <SideBar class="mb-4 row-start-2 row-end-3 col-span-2 lg:row-start-1 lg:row-end-2 lg:col-span-1 lg:max-w-[17.5rem] onload-animation" headings={headings}></SideBar>
 
             <main id="swup-container" class="transition-swup-fade col-span-2 lg:col-span-1 overflow-hidden">
-                <div id="content-wrapper" class="onload-animation">
+                <!-- 侧栏可折叠标记：必须在 <main> 内部，才会跟着 swup 切页被替换。
+                     详见本布局顶部脚本的 supportsCollapse()。 -->
+                <div id="content-wrapper" class="onload-animation" data-sidebar-collapsible={sidebarCollapsible === true ? "true" : undefined}>
                     <!-- the overflow-hidden here prevent long text break the layout-->
                     <!-- make id different from windows.swup global property -->
                     <slot></slot>

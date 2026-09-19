@@ -5,14 +5,7 @@ import I18nKey from "../i18n/i18nKey";
 import { i18n } from "../i18n/translation";
 import { getPostUrlBySlug } from "../utils/url-utils";
 
-export let tags: string[] = [];
-export let categories: string[] = [];
 export let sortedPosts: Post[] = [];
-
-const params = new URLSearchParams(window.location.search);
-tags = params.has("tag") ? params.getAll("tag") : [];
-categories = params.has("category") ? params.getAll("category") : [];
-const uncategorized = params.get("uncategorized");
 
 interface Post {
 	slug: string;
@@ -29,40 +22,9 @@ interface Group {
 	posts: Post[];
 }
 
-let groups: Group[] = [];
-
-function formatDate(date: Date) {
-	const month = (date.getMonth() + 1).toString().padStart(2, "0");
-	const day = date.getDate().toString().padStart(2, "0");
-	return `${month}-${day}`;
-}
-
-function formatTag(tagList: string[]) {
-	return tagList.map((t) => `#${t}`).join(" ");
-}
-
-onMount(async () => {
-	let filteredPosts: Post[] = sortedPosts;
-
-	if (tags.length > 0) {
-		filteredPosts = filteredPosts.filter(
-			(post) =>
-				Array.isArray(post.data.tags) &&
-				post.data.tags.some((tag) => tags.includes(tag)),
-		);
-	}
-
-	if (categories.length > 0) {
-		filteredPosts = filteredPosts.filter(
-			(post) => post.data.category && categories.includes(post.data.category),
-		);
-	}
-
-	if (uncategorized) {
-		filteredPosts = filteredPosts.filter((post) => !post.data.category);
-	}
-
-	const grouped = filteredPosts.reduce(
+/** 按年份分组，年份倒序 */
+function buildGroups(list: Post[]): Group[] {
+	const grouped = list.reduce(
 		(acc, post) => {
 			const year = post.data.published.getFullYear();
 			if (!acc[year]) {
@@ -74,14 +36,54 @@ onMount(async () => {
 		{} as Record<number, Post[]>,
 	);
 
-	const groupedPostsArray = Object.keys(grouped).map((yearStr) => ({
-		year: Number.parseInt(yearStr, 10),
-		posts: grouped[Number.parseInt(yearStr, 10)],
-	}));
+	return Object.keys(grouped)
+		.map((yearStr) => ({
+			year: Number.parseInt(yearStr, 10),
+			posts: grouped[Number.parseInt(yearStr, 10)],
+		}))
+		.sort((a, b) => b.year - a.year);
+}
 
-	groupedPostsArray.sort((a, b) => b.year - a.year);
+/* 顶层先算一次。SSR 阶段没有 window，但列表必须由服务端先吐出来，
+   否则这个组件在服务端渲染出的是空卡片，整页都得等客户端 JS 才有内容。
+   客户端 onMount 里再按 URL 上的 tag / category 收窄。 */
+let groups: Group[] = buildGroups(sortedPosts);
 
-	groups = groupedPostsArray;
+function formatDate(date: Date) {
+	const month = (date.getMonth() + 1).toString().padStart(2, "0");
+	const day = date.getDate().toString().padStart(2, "0");
+	return `${month}-${day}`;
+}
+
+function formatTag(tagList: string[]) {
+	return tagList.map((t) => `#${t}`).join(" ");
+}
+
+onMount(() => {
+	const params = new URLSearchParams(window.location.search);
+	const qTags = params.has("tag") ? params.getAll("tag") : [];
+	const qCategories = params.has("category") ? params.getAll("category") : [];
+	const uncategorized = params.get("uncategorized");
+
+	let filtered: Post[] = sortedPosts;
+
+	if (qTags.length > 0) {
+		filtered = filtered.filter(
+			(post) => Array.isArray(post.data.tags) && post.data.tags.some((tag) => qTags.includes(tag)),
+		);
+	}
+
+	if (qCategories.length > 0) {
+		filtered = filtered.filter(
+			(post) => post.data.category && qCategories.includes(post.data.category),
+		);
+	}
+
+	if (uncategorized) {
+		filtered = filtered.filter((post) => !post.data.category);
+	}
+
+	groups = buildGroups(filtered);
 });
 </script>
 

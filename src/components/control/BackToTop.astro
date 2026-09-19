@@ -1,6 +1,7 @@
 ---
 import { getCollection } from "astro:content";
 import { Icon } from "astro-icon/components";
+import { musicConfig } from "@/config";
 import { getPostUrlBySlug, url } from "../../utils/url-utils";
 
 // SSR 时确定初始可见性（避免首屏闪烁），导航后由 JS 动态更新
@@ -9,15 +10,26 @@ const isPostsRoute = Astro.url.pathname.startsWith(url("/posts/"));
 // 构建时注入全部文章 URL，供「随机一篇文章」在客户端随机跳转
 const posts = await getCollection("posts");
 const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(p.slug));
+
+// 音乐播放器（来源 v-blog.halei0v0.top）。musicConfig.enable = false 时按钮与面板都不渲染，脚本也随之不启动
+const music = musicConfig.enable ? musicConfig : null;
 ---
 
-<!-- 悬浮工具栏：回顶部 / 回主页 / 随机一篇 / 显示目录 / 跳评论 -->
+<!-- 悬浮工具栏：回顶部 / 回主页 / 随机一篇 / 显示目录 / 跳评论 / 音乐 -->
 <div class="floating-toolbar-wrapper">
     <div class="floating-toolbar flex flex-col gap-3">
 
-        {/* 回顶部按钮：保留 id 以兼容 Layout.astro 的滚动监听 */}
-        <div id="back-to-top-btn" class="toolbar-btn hide" onclick="toolbarBackToTop()" role="button" aria-label="回到顶部" tabindex="0">
-            <Icon name="material-symbols:keyboard-arrow-up-rounded" class="toolbar-icon"></Icon>
+        {/* 回顶部按钮：保留 id 以兼容 Layout.astro 的滚动监听。
+            进度环复刻 msqy.cc.cd 的 .progress-ring —— 沿按钮轮廓描一圈，随滚动填充。
+            viewBox 48×48、圆心 (24,24)、半径 21、描边 3 → 外沿 22.5，四周留 1.5px 余量。
+            按钮已改成正圆，环也必须是正圆；周长 = 2πr，由脚本按常量算。 */}
+        <div id="back-to-top-btn" class="toolbar-btn back-to-top hide" onclick="toolbarBackToTop()" role="button" aria-label="回到顶部" tabindex="0">
+            <svg class="progress-ring" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+                <circle id="back-to-top-ring" class="progress-ring-fill" cx="24" cy="24" r="21"></circle>
+            </svg>
+            <span class="back-to-top-icon">
+                <Icon name="material-symbols:keyboard-arrow-up-rounded" class="toolbar-icon"></Icon>
+            </span>
         </div>
 
         {/* 回主页按钮 */}
@@ -40,21 +52,117 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
             <Icon name="material-symbols:comment-rounded" class="toolbar-icon"></Icon>
         </div>
 
+        {/* 音乐播放器入口（复刻自 v-blog.halei0v0.top 的悬浮工具栏音乐）。
+            配置以 data-* 注入：内联脚本不能用 define:vars，属性值读取时浏览器会自动解码实体 */}
+        {music && (
+            <div
+                id="music-fab-btn"
+                class="toolbar-btn music-fab"
+                data-music-config={JSON.stringify(music)}
+                role="button"
+                tabindex="0"
+                aria-label="打开音乐控制中心"
+                aria-expanded="false"
+                title="打开音乐控制中心"
+            >
+                <span class="music-fab__icon">
+                    <Icon name="material-symbols:music-note-rounded" class="music-fab__note" />
+                    <span class="music-fab__spinner" aria-hidden="true"></span>
+                </span>
+                <span class="music-fab__dot" aria-hidden="true"></span>
+            </div>
+        )}
+
     </div>
 
-    {/* 抽屉式目录面板 */}
-    <div id="toc-drawer" class="toc-drawer" aria-hidden="true">
-        <div class="toc-drawer-header">
-            <span class="toc-drawer-title">目录</span>
-            <button id="toc-drawer-close" class="toc-drawer-close" aria-label="关闭目录">
-                <Icon name="material-symbols:close-rounded" class="text-[1.25rem]"></Icon>
-            </button>
+    {/* 音乐播放面板：与工具栏同级。位置由脚本按音乐按钮自身的实测 rect 算——
+        不能对齐整条工具栏顶端，否则 6 个按钮 + 石蒜上抬会把面板顶到视口上半部、离按钮很远 */}
+    {music && (
+        <div id="music-panel" class="music-panel" role="dialog" aria-label="音乐控制中心" aria-hidden="true">
+
+            {/* ===== 播放视图 ===== */}
+            <div class="music-view" data-view="player">
+                <div class="music-head">
+                    <div class="music-cover" aria-hidden="true">
+                        <img id="music-cover" class="music-cover__img" alt="" width="48" height="48" decoding="async" />
+                        <Icon name="material-symbols:music-note-rounded" class="music-cover__ph" />
+                    </div>
+                    <div class="music-meta">
+                        <div id="music-title" class="music-title" title="未在播放">未在播放</div>
+                        <div id="music-artist" class="music-artist">还没有曲目</div>
+                    </div>
+                    <button id="music-close" class="music-btn" type="button" aria-label="收起音乐控制中心" title="收起">
+                        <Icon name="material-symbols:expand-more-rounded" />
+                    </button>
+                </div>
+
+                <div id="music-progress" class="music-progress" role="slider" tabindex="0" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="music-progress-fill" class="music-progress__fill"></div>
+                </div>
+                <div class="music-times">
+                    <span id="music-time-now">0:00</span>
+                    <span id="music-time-total">0:00</span>
+                </div>
+
+                <div id="music-notice" class="music-notice" hidden></div>
+
+                <div class="music-controls">
+                    <button id="music-shuffle" class="music-btn" type="button" aria-label="随机播放" title="随机播放">
+                        <Icon name="material-symbols:shuffle-rounded" />
+                    </button>
+                    <button id="music-prev" class="music-btn" type="button" aria-label="上一首" title="上一首">
+                        <Icon name="material-symbols:skip-previous-rounded" />
+                    </button>
+                    <button id="music-toggle" class="music-btn music-btn--primary" type="button" aria-label="播放/暂停" title="播放 / 暂停">
+                        <Icon name="material-symbols:play-arrow-rounded" class="mf-when-paused" />
+                        <Icon name="material-symbols:pause-rounded" class="mf-when-playing" />
+                    </button>
+                    <button id="music-next" class="music-btn" type="button" aria-label="下一首" title="下一首">
+                        <Icon name="material-symbols:skip-next-rounded" />
+                    </button>
+                    <button id="music-repeat" class="music-btn" type="button" aria-label="循环模式" title="循环：关 / 单曲 / 列表">
+                        <Icon name="material-symbols:repeat-rounded" class="mf-repeat-list" />
+                        <Icon name="material-symbols:repeat-one-rounded" class="mf-repeat-one" />
+                    </button>
+                    <button id="music-list-btn" class="music-btn" type="button" aria-label="播放列表" title="播放列表">
+                        <Icon name="material-symbols:queue-music-rounded" />
+                    </button>
+                </div>
+
+                <div class="music-volume">
+                    <button id="music-mute" class="music-btn" type="button" aria-label="静音" title="静音 / 取消静音">
+                        <Icon name="material-symbols:volume-up-rounded" class="mf-vol-high" />
+                        <Icon name="material-symbols:volume-down-rounded" class="mf-vol-low" />
+                        <Icon name="material-symbols:volume-off-rounded" class="mf-vol-off" />
+                    </button>
+                    <div id="music-volume" class="music-volume__bar" role="slider" tabindex="0" aria-label="音量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70">
+                        <div id="music-volume-fill" class="music-volume__fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ===== 播放列表视图（与播放视图互斥切换，避免两个浮层叠在一起顶出屏幕） ===== */}
+            <div class="music-view" data-view="playlist" hidden>
+                <div class="music-head music-head--list">
+                    <span class="music-list-title">播放列表<span id="music-list-count" class="music-list-count"></span></span>
+                    <button id="music-list-back" class="music-btn" type="button" aria-label="返回播放器" title="返回">
+                        <Icon name="material-symbols:close-rounded" />
+                    </button>
+                </div>
+                <div id="music-list" class="music-list hide-scrollbar" role="listbox" aria-label="播放列表"></div>
+            </div>
+
         </div>
-        <div id="toc-drawer-body" class="toc-drawer-body">
-            {/* 目录内容由脚本动态填充自当前页 #toc */}
-        </div>
+    )}
+
+    {/* 目录弹窗（复刻 msqy.cc.cd 的 .toc-popup）：
+        贴在按钮列左侧、底边对齐展开，不再是从右侧滑入的全高抽屉、也不再需要遮罩。
+        目录项由脚本按当前页 #toc 生成（层级读对应 heading 的标签名）。 */}
+    <div id="toc-popup" class="toc-popup" aria-hidden="true" role="dialog" aria-label="目录">
+        <nav id="toc-popup-nav" class="toc-popup-nav">
+            <div id="toc-popup-indicator" class="toc-active-indicator" style="opacity:0"></div>
+        </nav>
     </div>
-    <div id="toc-drawer-mask" class="toc-drawer-mask" aria-hidden="true"></div>
 </div>
 
 <style>
@@ -76,7 +184,7 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
     justify-content: center;
     width: 2.75rem;
     height: 2.75rem;
-    border-radius: 0.75rem;
+    border-radius: 50%; /* 圆形按钮：与回顶进度环（正圆）同构，整列视觉更统一 */
     color: var(--primary);
     background: var(--card-bg);
     border: 1px solid var(--line-divider);
@@ -96,6 +204,35 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
     pointer-events: none;
 }
 
+/* ===== 回顶部：阅读进度环（复刻 msqy.cc.cd 的 .progress-ring） =====
+   只画一条进度线、没有底轨——与参考站一致，视觉上像是按钮边框在"灌满"。
+   stroke-dasharray / dashoffset 由脚本按周长写入（见 initProgressRing）。 */
+.back-to-top {
+    position: relative;
+}
+.progress-ring {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+.progress-ring-fill {
+    fill: none;
+    stroke: var(--primary);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.15s ease;
+}
+.back-to-top-icon {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .toolbar-icon {
     font-size: 1.5rem;
 }
@@ -111,94 +248,584 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
     }
 }
 
-/* 抽屉式目录 */
-.toc-drawer {
-    position: fixed;
-    top: 0;
-    right: 0;
-    height: 100vh;
-    width: 20rem;
-    max-width: 85vw;
-    background: var(--card-bg);
-    border-left: 1px solid var(--line-divider);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.1);
-    transform: translateX(100%);
-    transition: transform 0.3s ease;
-    z-index: 60;
-    display: flex;
-    flex-direction: column;
-    pointer-events: auto;
-}
-.toc-drawer.open {
-    transform: translateX(0);
+/* 右下角石蒜挂件（Sakana! Widget）占着右下角，工具栏必须让位。
+   让位方式回到「垂直上抬」：整条抬到挂件上方（bottom:15rem = 240px ≈
+   挂件高 200px + 底边距 + 间隙）。⚠️ 别改成水平避让 —— 工具栏左移后
+   会压到正文列，且与挂件仍有视觉冲突（实测体验更差）。
+   仅在挂件确实出现时（客户端脚本置 html[data-sakana="on"]）生效，关掉即回右下角。
+   音乐面板是它的兄弟节点、位置由脚本实测工具栏位置算出，因此会一起平移。 */
+@media (min-width: 768px) {
+    html[data-sakana="on"] .floating-toolbar-wrapper {
+        bottom: 15rem;
+    }
 }
 
-.toc-drawer-mask {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-    z-index: 55;
+/* ===== 音乐播放器：入口按钮 ===== */
+.music-fab {
+    position: relative;
+    overflow: visible;
 }
-.toc-drawer-mask.open {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-.toc-drawer-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--line-divider);
-}
-
-.toc-drawer-title {
-    font-weight: bold;
-    font-size: 1.125rem;
-}
-
-.toc-drawer-close {
+.music-fab__icon {
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 1.5rem;
+}
+.music-fab__note {
+    display: block;
+}
+/* 歌单/音频加载中：音符换成旋转圆环 */
+.music-fab__spinner {
+    display: none;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 50%;
+    border: 2px solid var(--line-divider);
+    border-top-color: var(--primary);
+    animation: music-spin 0.8s linear infinite;
+}
+.music-fab.is-loading .music-fab__note {
+    display: none;
+}
+.music-fab.is-loading .music-fab__spinner {
+    display: block;
+}
+.music-fab.is-open {
+    background: var(--btn-plain-bg-hover);
+}
+/* 播放中：右上角一颗主题色小点，带脉冲 */
+.music-fab__dot {
+    position: absolute;
+    top: 0.32rem;  /* 圆形按钮：45° 方向再往里收一点，别贴着弧边被切 */
+    right: 0.32rem;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: var(--primary);
+    opacity: 0;
+    transform: scale(0.5);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.music-fab.is-playing .music-fab__dot {
+    opacity: 1;
+    transform: scale(1);
+    animation: music-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes music-spin {
+    to { transform: rotate(360deg); }
+}
+@keyframes music-dot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(0.62); opacity: 0.55; }
+}
+
+/* ===== 音乐播放器：面板 =====
+   position: fixed + 左/下边距由脚本按音乐按钮实测位置写入（见 positionPanel：
+   面板在按钮左侧展开、底边与按钮底边齐平）；
+   这里的值是首帧兜底，脚本一上来就会覆盖。 */
+.music-panel {
+    position: fixed;
+    left: auto;
+    right: 1.5rem;
+    bottom: 6rem;
+    z-index: 55; /* 高于悬浮工具栏(50)、低于目录抽屉(60) */
+    width: 20rem;
+    max-width: calc(100vw - 2rem);
+    padding: 0.9rem 1rem 1rem;
+    border-radius: 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--line-divider);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+    /* 🔴 必须显式给文字色：面板是 fixed 挂在 body 下，body 本身没有 color 声明，
+       面板内 .music-title / .music-btn 等又写着 color:inherit —— 不写这行就继承到
+       浏览器初始值「黑」。亮色下白底黑字看不出问题，暗色下深灰面板 + 黑字几乎不可读。 */
+    color: rgba(0, 0, 0, 0.9);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    pointer-events: auto;
+    user-select: none;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.94);
+    transform-origin: bottom right;
+    transition: opacity 0.2s ease, transform 0.28s cubic-bezier(0.22, 1.18, 0.36, 1), visibility 0.2s;
+}
+.music-panel.is-open {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+}
+/* 暗色：文字转白，同时给面板「抬升感」——卡片色(oklch .23)与页面底色(.16)相差很小，
+   只靠 1px 的 line-divider(白 8%) 划边界，整块面板会糊进背景里。 */
+:global(html.dark) .music-panel {
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+/* 音乐列表项同理：脚本 innerHTML 生成，靠 #music-list 限定作用域 */
+:global(html.dark) #music-list .music-item.is-active {
+    background: var(--btn-regular-bg-hover);
+}
+
+.music-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 0.75rem;
+}
+.music-head--list {
+    margin-bottom: 0.5rem;
+}
+
+.music-cover {
+    position: relative;
+    flex-shrink: 0;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--btn-regular-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.music-cover__img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.music-cover__img.is-loaded {
+    opacity: 1;
+}
+/* 播放中封面缓慢旋转（暂停即停在当前角度） */
+.music-panel[data-playing="1"] .music-cover__img.is-loaded {
+    animation: music-spin 9s linear infinite;
+}
+.music-cover__ph {
+    position: absolute;
+    font-size: 1.4rem;
+    color: var(--btn-content);
+}
+
+.music-meta {
+    flex: 1;
+    min-width: 0;
+}
+.music-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.music-artist {
+    font-size: 0.75rem;
+    opacity: 0.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     width: 2rem;
     height: 2rem;
     border-radius: 0.5rem;
-    cursor: pointer;
-    color: var(--primary);
-    background: transparent;
     border: none;
-    transition: background 0.2s ease;
+    background: transparent;
+    color: inherit;
+    font-size: 1.15rem;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease, color 0.15s ease;
 }
-.toc-drawer-close:hover {
+.music-btn:hover {
     background: var(--btn-plain-bg-hover);
 }
-
-.toc-drawer-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1rem 1.25rem;
+.music-btn:active {
+    transform: scale(0.9);
 }
-.toc-drawer-body a {
+.music-btn--primary {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 50%;
+    font-size: 1.4rem;
+    background: var(--primary);
+    color: var(--btn-content, #fff);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+.music-btn--primary:hover {
+    background: var(--primary);
+    filter: brightness(1.06);
+}
+
+/* 进度 */
+.music-progress {
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: var(--btn-regular-bg);
+    cursor: pointer;
+    touch-action: none;
+}
+.music-progress__fill {
+    height: 100%;
+    width: 0;
+    border-radius: 9999px;
+    background: var(--primary);
+    transition: width 0.1s linear;
+}
+.music-progress.is-dragging .music-progress__fill,
+.music-progress.is-dragging {
+    transition: none;
+}
+.music-times {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.35rem;
+    font-size: 0.7rem;
+    opacity: 0.5;
+}
+
+.music-notice {
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 0.5rem;
+    background: var(--btn-regular-bg);
+    color: var(--btn-content);
+    font-size: 0.72rem;
+}
+
+.music-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    margin: 0.7rem 0 0.6rem;
+}
+
+.music-volume {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.music-volume__bar {
+    flex: 1;
+    height: 0.3rem;
+    border-radius: 9999px;
+    background: var(--btn-regular-bg);
+    cursor: pointer;
+    touch-action: none;
+}
+.music-volume__fill {
+    height: 100%;
+    width: 70%;
+    border-radius: 9999px;
+    background: var(--primary);
+}
+.music-volume__bar.is-dragging .music-volume__fill {
+    transition: none;
+}
+
+/* 状态驱动的图标切换（属性写在 #music-panel 上，脚本只管改属性） */
+.mf-when-playing,
+.mf-repeat-one,
+.mf-vol-low,
+.mf-vol-off {
+    display: none;
+}
+.music-panel[data-playing="1"] .mf-when-paused {
+    display: none;
+}
+.music-panel[data-playing="1"] .mf-when-playing {
+    display: block;
+}
+.music-panel[data-repeat="1"] .mf-repeat-list,
+.music-panel[data-repeat="2"] .mf-repeat-one {
+    display: none;
+}
+.music-panel[data-repeat="1"] .mf-repeat-one {
+    display: block;
+}
+.music-panel[data-repeat="1"] #music-repeat,
+.music-panel[data-repeat="2"] #music-repeat,
+.music-panel[data-shuffle="1"] #music-shuffle {
+    color: var(--primary);
+}
+.music-panel[data-vol="low"] .mf-vol-high,
+.music-panel[data-vol="off"] .mf-vol-high,
+.music-panel[data-vol="off"] .mf-vol-low {
+    display: none;
+}
+.music-panel[data-vol="low"] .mf-vol-low {
+    display: block;
+}
+.music-panel[data-vol="off"] .mf-vol-off {
+    display: block;
+}
+
+/* 列表视图 */
+.music-list-title {
+    flex: 1;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.music-list-count {
+    margin-left: 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 400;
+    opacity: 0.45;
+}
+.music-list {
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
+/* 列表项由脚本 innerHTML 生成，元素上没有 Astro 的 scope 属性，
+   所以这里统一用 :global() 并靠 #music-list 限定作用域 */
+:global(#music-list .music-item) {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+:global(#music-list .music-item:hover) {
+    background: var(--btn-plain-bg-hover);
+}
+:global(#music-list .music-item.is-active) {
+    background: var(--btn-regular-bg);
+}
+:global(#music-list .music-item__no) {
+    flex-shrink: 0;
+    width: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    opacity: 0.45;
+}
+:global(#music-list .music-item__cover) {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.4rem;
+    object-fit: cover;
+    background: var(--btn-regular-bg);
+}
+:global(#music-list .music-item__meta) {
+    flex: 1;
+    min-width: 0;
+}
+:global(#music-list .music-item__title) {
+    display: block;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:global(#music-list .music-item__artist) {
+    display: block;
+    font-size: 0.68rem;
+    opacity: 0.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:global(#music-list .music-item.is-active .music-item__title) {
+    color: var(--primary);
+}
+:global(#music-list .music-eq) {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 0.75rem;
+}
+:global(#music-list .music-eq i) {
+    display: block;
+    width: 2px;
+    border-radius: 9999px;
+    background: var(--primary);
+}
+:global(#music-list .music-eq i:nth-child(1)) { height: 0.6rem; animation: music-eq 1s ease-in-out infinite; }
+:global(#music-list .music-eq i:nth-child(2)) { height: 0.75rem; animation: music-eq 1s ease-in-out 0.15s infinite; }
+:global(#music-list .music-eq i:nth-child(3)) { height: 0.45rem; animation: music-eq 1s ease-in-out 0.3s infinite; }
+:global(#music-list .music-eq.is-paused i) {
+    animation-play-state: paused;
+}
+:global(#music-list .music-item--empty) {
+    justify-content: center;
+    font-size: 0.75rem;
+    opacity: 0.5;
+    cursor: default;
+}
+@keyframes music-eq {
+    0%, 100% { transform: scaleY(0.45); }
+    50% { transform: scaleY(1); }
+}
+
+/* ===== 目录弹窗（复刻 msqy.cc.cd 的 .toc-popup） =====
+   🔴 全部用 :global()：目录项是脚本 createElement 生成的，不带 Astro 的 scope 属性，
+   普通 scoped 选择器会静默失配（和音乐列表是同一个坑）。
+   用 #toc-popup 前缀圈定作用范围，避免污染全局。 */
+:global(#toc-popup) {
+    position: absolute;
+    right: calc(100% + 0.5rem); /* 贴在按钮列左侧 0.5rem；absolute 不占布局，展开不会把按钮挤走 */
+    bottom: 0;                 /* 底边与按钮列底边齐平 */
+    z-index: 60;
+    width: 17.5rem;            /* 280px */
+    min-width: 11.25rem;       /* 180px */
+    max-width: calc(100vw - 6rem);
+    max-height: 23.75rem;      /* 380px，超出则在弹窗内滚动 */
+    padding: 0.75rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--radius-large);
+    background: var(--card-bg);
+    border: 1px solid var(--line-divider);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+    pointer-events: auto;
+    transform-origin: bottom right;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.94);
+    transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1.18, 0.36, 1), visibility 0.2s;
+}
+:global(#toc-popup.is-open) {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+}
+:global(#toc-popup::-webkit-scrollbar) {
+    width: 4px;
+}
+:global(#toc-popup::-webkit-scrollbar-track) {
+    background: transparent;
+}
+:global(#toc-popup::-webkit-scrollbar-thumb) {
+    background: var(--line-divider);
+    border-radius: 999px;
+}
+
+:global(#toc-popup-nav) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+:global(#toc-popup .toc-popup-item) {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.5rem;
+    padding: 0.3rem 0.5rem;
     border-radius: 0.5rem;
-    color: var(--text-content);
-    font-size: 0.875rem;
-    transition: background 0.15s ease;
+    font-size: 0.82rem;
+    line-height: 1.3;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: background 0.12s ease;
 }
-.toc-drawer-body a:hover {
+:global(#toc-popup .toc-popup-item:hover) {
     background: var(--toc-btn-hover);
 }
-.toc-drawer-empty {
-    padding: 1rem;
-    color: var(--text-30);
-    font-size: 0.875rem;
+:global(#toc-popup .toc-popup-item:active) {
+    background: var(--toc-btn-active);
+}
+/* 层级用 padding 表达（参考站口径），不改字号，保持整列左对齐 */
+:global(#toc-popup .toc-popup-item.toc-level-0) {
+    padding-left: 0.5rem;
+}
+:global(#toc-popup .toc-popup-item.toc-level-1) {
+    padding-left: 1.5rem;
+}
+:global(#toc-popup .toc-popup-item.toc-level-2) {
+    padding-left: 2.5rem;
+}
+
+:global(#toc-popup .toc-popup-badge) {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 0.35rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 1;
+}
+:global(#toc-popup .toc-badge-index) {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border-radius: 0.35rem;
+    background: var(--toc-badge-bg);
+    color: var(--btn-content);
+    font-size: 0.6rem;
+    font-weight: 700;
+}
+:global(#toc-popup .toc-badge-dot) {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--line-color);
+}
+:global(#toc-popup .toc-badge-dot-sm) {
+    width: 0.3rem;
+    height: 0.3rem;
+    border-radius: 999px;
+    background: var(--line-color);
+}
+
+:global(#toc-popup .toc-popup-label) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* 背景块交给 #toc-popup-indicator 做滑动，条目本身只负责文字与徽章变色——
+   参考站两处都画了同样的底色，叠起来会偏深，这里去掉重复的那层。 */
+:global(#toc-popup .toc-popup-item.visible .toc-popup-label) {
+    color: var(--primary);
+}
+:global(#toc-popup .toc-popup-item.visible .toc-badge-index) {
+    background: var(--primary);
+    color: var(--card-bg);
+}
+:global(#toc-popup .toc-popup-item.visible .toc-badge-dot),
+:global(#toc-popup .toc-popup-item.visible .toc-badge-dot-sm) {
+    background: var(--primary);
+}
+:global(#toc-popup .toc-active-indicator) {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    border-radius: 0.5rem;
+    background: color-mix(in oklab, var(--primary) 15%, var(--card-bg));
+    transition: top 0.18s ease, height 0.18s ease, opacity 0.14s ease;
+}
+:global(#toc-popup .toc-popup-empty) {
+    padding: 0.6rem 0.5rem;
+    font-size: 0.82rem;
+}
+
+/* 目录按钮：弹窗开着时的激活态 */
+#show-toc-btn.is-open {
+    background: var(--btn-plain-bg-hover);
 }
 </style>
 
@@ -272,51 +899,199 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
     }
     window.toolbarGotoComment = toolbarGotoComment;
 
-    // ===== 从当前页 #toc 提取目录链接并填充抽屉 =====
-    function populateDrawer() {
-        const body = document.getElementById('toc-drawer-body');
-        if (!body) return;
-        body.innerHTML = ''; // 始终清空，确保使用最新目录
-
-        // 只克隆 <a> 链接，避免克隆 table-of-contents 自定义元素触发其 connectedCallback
-        const sourceLinks = document.querySelectorAll('#toc table-of-contents > a');
-        if (sourceLinks.length === 0) {
-            body.innerHTML = '<div class="toc-drawer-empty">本文无目录</div>';
-            return;
-        }
-        const container = document.createElement('div');
-        sourceLinks.forEach(function (a) {
-            container.appendChild(a.cloneNode(true));
-        });
-        body.appendChild(container);
+    // ===== 目录弹窗（复刻 msqy.cc.cd 的 .toc-popup） =====
+    // 层级不用克隆后的类名（ml-4 / ml-8）反推，直接读对应 heading 的标签名——
+    // 加密文章解密后重建目录时同样成立。
+    function headingDepthOf(href) {
+        var id = decodeURIComponent((href || '').replace(/^#/, ''));
+        if (!id) return null;
+        var el = document.getElementById(id);
+        if (!el) return null;
+        var n = Number(el.tagName.charAt(1));
+        return n >= 1 && n <= 6 ? n : null;
     }
 
-    // ===== 打开/关闭抽屉 =====
+    function populatePopup() {
+        var nav = document.getElementById('toc-popup-nav');
+        if (!nav) return;
+
+        // 清旧条目，但保留 indicator（它由 CSS + 脚本定位）
+        Array.prototype.slice.call(nav.querySelectorAll('.toc-popup-item, .toc-popup-empty'))
+            .forEach(function (el) { el.parentNode.removeChild(el); });
+
+        var links = Array.prototype.slice.call(
+            document.querySelectorAll('#toc table-of-contents > a')
+        );
+        if (!links.length) {
+            var empty = document.createElement('div');
+            empty.className = 'toc-popup-empty text-50';
+            empty.textContent = '本文无目录';
+            nav.appendChild(empty);
+            return;
+        }
+
+        var raw = [];
+        var minDepth = 10;
+        links.forEach(function (a) {
+            var href = a.getAttribute('href') || '';
+            var d = headingDepthOf(href);
+            if (d === null) return;
+            if (d < minDepth) minDepth = d;
+            raw.push({ href: href, depth: d, text: (a.textContent || '').trim() });
+        });
+
+        var h1Count = 1;
+        raw.forEach(function (it) {
+            var level = Math.min(Math.max(it.depth - minDepth, 0), 2);
+
+            var a = document.createElement('a');
+            a.className = 'toc-popup-item toc-level-' + level;
+            a.setAttribute('href', it.href);
+
+            var badge = document.createElement('span');
+            badge.className = 'toc-popup-badge';
+            if (level === 0) {
+                var idx = document.createElement('span');
+                idx.className = 'toc-badge-index';
+                idx.textContent = String(h1Count++);
+                badge.appendChild(idx);
+            } else {
+                var dot = document.createElement('span');
+                dot.className = level === 1 ? 'toc-badge-dot' : 'toc-badge-dot-sm';
+                badge.appendChild(dot);
+            }
+
+            var label = document.createElement('span');
+            label.className = 'toc-popup-label ' + (level === 0 ? 'label-primary text-75' : 'text-50');
+            // 用 textContent 而不是 innerHTML：标题来自文章，天然免转义
+            label.textContent = it.text;
+
+            a.appendChild(badge);
+            a.appendChild(label);
+            nav.appendChild(a);
+        });
+    }
+
+    // ===== 当前小节高亮：只在弹窗打开时跑，共用滚动回调，不额外加监听 =====
+    function syncActiveItem() {
+        var popup = document.getElementById('toc-popup');
+        var nav = document.getElementById('toc-popup-nav');
+        var indicator = document.getElementById('toc-popup-indicator');
+        if (!popup || !nav || !popup.classList.contains('is-open')) return;
+
+        var items = Array.prototype.slice.call(nav.querySelectorAll('.toc-popup-item'));
+        if (!items.length) return;
+
+        // 视口顶部往下 120px 作为判定线
+        var probe = 120;
+        var current = 0;
+        for (var i = 0; i < items.length; i++) {
+            var id = decodeURIComponent((items[i].getAttribute('href') || '').replace(/^#/, ''));
+            var h = document.getElementById(id);
+            if (!h) continue;
+            if (h.getBoundingClientRect().top <= probe) current = i;
+            else break;
+        }
+
+        items.forEach(function (el, i) {
+            el.classList.toggle('visible', i === current);
+        });
+
+        var cur = items[current];
+        if (indicator) {
+            indicator.style.opacity = '1';
+            // indicator 与 item 的 offsetParent 都是 #toc-popup-nav，坐标同口径
+            indicator.style.top = cur.offsetTop + 'px';
+            indicator.style.height = cur.offsetHeight + 'px';
+        }
+
+        // 当前项滚出弹窗可视区时带回来（nav 有 padding，用 popup 的滚动量比较）
+        var itemTop = nav.offsetTop + cur.offsetTop;
+        if (itemTop < popup.scrollTop || itemTop + cur.offsetHeight > popup.scrollTop + popup.clientHeight) {
+            popup.scrollTo({
+                top: Math.max(0, itemTop - popup.clientHeight / 2),
+                behavior: 'smooth',
+            });
+        }
+    }
+
+    function clearActiveItem() {
+        var nav = document.getElementById('toc-popup-nav');
+        var indicator = document.getElementById('toc-popup-indicator');
+        if (nav) {
+            Array.prototype.slice.call(nav.querySelectorAll('.toc-popup-item'))
+                .forEach(function (el) { el.classList.remove('visible'); });
+        }
+        if (indicator) indicator.style.opacity = '0';
+    }
+
+    // ===== 打开 / 关闭目录弹窗 =====
     function toolbarToggleToc() {
-        const drawer = document.getElementById('toc-drawer');
-        const mask = document.getElementById('toc-drawer-mask');
-        if (!drawer) return;
-
-        // 每次打开前重新填充，保证目录与当前文章一致
-        populateDrawer();
-
-        const isOpen = drawer.classList.toggle('open');
-        mask.classList.toggle('open', isOpen);
-        drawer.setAttribute('aria-hidden', String(!isOpen));
-        mask.setAttribute('aria-hidden', String(!isOpen));
-        document.body.style.overflow = isOpen ? 'hidden' : '';
+        var popup = document.getElementById('toc-popup');
+        if (!popup) return;
+        if (popup.classList.contains('is-open')) {
+            toolbarCloseToc();
+            return;
+        }
+        populatePopup(); // 每次打开前重建，保证和当前文章一致
+        popup.classList.add('is-open');
+        popup.setAttribute('aria-hidden', 'false');
+        var btn = document.getElementById('show-toc-btn');
+        if (btn) btn.classList.add('is-open');
+        requestAnimationFrame(syncActiveItem);
     }
     window.toolbarToggleToc = toolbarToggleToc;
 
     function toolbarCloseToc() {
-        const drawer = document.getElementById('toc-drawer');
-        const mask = document.getElementById('toc-drawer-mask');
-        if (!drawer) return;
-        drawer.classList.remove('open');
-        mask.classList.remove('open');
-        drawer.setAttribute('aria-hidden', 'true');
-        mask.setAttribute('aria-hidden', 'true');
-        document.body.style.overflow = '';
+        var popup = document.getElementById('toc-popup');
+        if (!popup) return;
+        popup.classList.remove('is-open');
+        popup.setAttribute('aria-hidden', 'true');
+        var btn = document.getElementById('show-toc-btn');
+        if (btn) btn.classList.remove('is-open');
+        clearActiveItem();
+    }
+
+    // ===== 回顶部按钮上的阅读进度环（复刻 msqy.cc.cd 的 .progress-ring） =====
+    // 环是正圆，周长 = 2πr。数值必须和模板里 #back-to-top-ring 的 r 对上（viewBox 48×48）。
+    // 改按钮尺寸不用动这里：SVG 是 100% 拉伸的，周长只跟 viewBox 内的几何有关。
+    var RING_RADIUS = 21;
+    var RING_LEN = 2 * Math.PI * RING_RADIUS;
+
+    // 缓存可滚动高度：每帧读 scrollHeight 会触发重排，这里只在尺寸变化时重算
+    var scrollMax = 0;
+    function measureScrollMax() {
+        var doc = document.documentElement;
+        var body = document.body;
+        scrollMax = Math.max(body.scrollHeight, doc.scrollHeight) - window.innerHeight;
+    }
+
+    function initProgressRing() {
+        var ring = document.getElementById('back-to-top-ring');
+        if (!ring) return;
+        ring.style.strokeDasharray = RING_LEN.toFixed(2);
+        ring.style.strokeDashoffset = RING_LEN.toFixed(2); // 初始 0%
+    }
+
+    function updateProgressRing() {
+        var ring = document.getElementById('back-to-top-ring');
+        if (ring) {
+            var doc = document.documentElement;
+            var body = document.body;
+            var top = body.scrollTop || doc.scrollTop || 0;
+            var p = scrollMax > 0 ? Math.min(1, Math.max(0, top / scrollMax)) : 0;
+            ring.style.strokeDashoffset = (RING_LEN * (1 - p)).toFixed(2);
+        }
+        syncActiveItem(); // 同一个滚动源；弹窗没开时它自己会立刻返回
+    }
+
+    var toolbarRaf = 0;
+    function onToolbarScroll() {
+        if (toolbarRaf) return;
+        toolbarRaf = requestAnimationFrame(function () {
+            toolbarRaf = 0;
+            updateProgressRing();
+        });
     }
 
     // ===== 事件绑定（仅绑定一次，用标志位防止重复） =====
@@ -325,29 +1100,56 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
         if (toolbarBound) return;
         toolbarBound = true;
 
-        var closeBtn = document.getElementById('toc-drawer-close');
-        var mask = document.getElementById('toc-drawer-mask');
-        if (closeBtn) closeBtn.addEventListener('click', toolbarCloseToc);
-        if (mask) mask.addEventListener('click', toolbarCloseToc);
+        // 点击弹窗与按钮之外的地方关闭
+        document.addEventListener('click', function (e) {
+            var popup = document.getElementById('toc-popup');
+            if (!popup || !popup.classList.contains('is-open')) return;
+            var t = e.target;
+            if (!(t instanceof Node)) return;
+            if (popup.contains(t)) return;
+            var btn = document.getElementById('show-toc-btn');
+            if (btn && btn.contains(t)) return;
+            toolbarCloseToc();
+        });
 
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') toolbarCloseToc();
         });
 
-        var body = document.getElementById('toc-drawer-body');
-        if (body) {
-            body.addEventListener('click', function (e) {
-                if (e.target instanceof HTMLAnchorElement) {
-                    setTimeout(toolbarCloseToc, 120);
-                }
+        var popup = document.getElementById('toc-popup');
+        if (popup) {
+            popup.addEventListener('click', function (e) {
+                var a = e.target instanceof Element ? e.target.closest('a[href^="#"]') : null;
+                if (!a) return;
+                e.preventDefault();
+                var raw = (a.getAttribute('href') || '').slice(1);
+                var target = document.getElementById(decodeURIComponent(raw));
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (history.replaceState) history.replaceState(null, '', '#' + raw);
+                setTimeout(toolbarCloseToc, 180);
             });
         }
     }
 
     // ===== 初始化 =====
+    var scrollBound = false;
+    function bindScroll() {
+        if (scrollBound) return;
+        scrollBound = true;
+        window.addEventListener('scroll', onToolbarScroll, { passive: true });
+        window.addEventListener('resize', function () {
+            measureScrollMax();
+            onToolbarScroll();
+        }, { passive: true });
+    }
+
     function initToolbar() {
         updateTocBtnVisibility();
         bindToolbarEvents();
+        initProgressRing();
+        bindScroll();
+        measureScrollMax();
+        updateProgressRing();
     }
 
     if (document.readyState === 'loading') {
@@ -356,15 +1158,17 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
         initToolbar();
     }
 
-    // ===== Swup 页面切换后：关闭抽屉 + 更新按钮可见性 =====
+    // ===== Swup 页面切换后：关闭弹窗 + 更新按钮可见性 + 重算进度 =====
     function setupSwupHooks() {
         if (!window.swup) return;
         window.swup.hooks.on('content:replace', function () {
-            // DOM 已替换为新页面内容
-            toolbarCloseToc(); // 关闭可能开着的抽屉
+            toolbarCloseToc(); // 关闭可能开着的弹窗
             updateTocBtnVisibility();
-            // 评论为懒加载，延迟再检查一次确保按钮显示
-            setTimeout(updateTocBtnVisibility, 1500);
+            setTimeout(updateTocBtnVisibility, 1500); // 评论懒加载，稍后再确认一次
+            requestAnimationFrame(function () {
+                measureScrollMax();
+                updateProgressRing();
+            });
         });
     }
     if (window.swup) {
@@ -372,5 +1176,742 @@ const postUrls = posts.filter((p) => !p.data.draft).map((p) => getPostUrlBySlug(
     } else {
         document.addEventListener('swup:enable', setupSwupHooks);
     }
+})();
+
+
+/* =====================================================================
+ * 悬浮工具栏音乐播放器（复刻自 v-blog.halei0v0.top）
+ *
+ * 设计要点：
+ *  1) 站点级单例 —— <audio> 挂在 window，不插入 DOM。Swup 只替换 main / #toc，
+ *     工具栏整体在替换范围之外，所以切页不重建、不打断播放。
+ *  2) 脚本可能被 Swup 更新 <head> 时重跑 —— 用 window 标志位兜住；即使重跑，
+ *     事件绑定用 onclick 赋值（幂等）而不是 addEventListener，不会叠加。
+ *  3) DOM 一律懒取（每次 $() 查一次），避免缓存了被替换的节点。
+ *  4) 面板位置按工具栏实测位置算，才能跟着「石蒜挂件上抬工具栏」一起走。
+ * ===================================================================== */
+(function () {
+    'use strict';
+
+    if (window.__musicFabBooted) return;
+    window.__musicFabBooted = true;
+
+    var btn0 = document.getElementById('music-fab-btn');
+    if (!btn0) return; // 未启用音乐播放器
+
+    var CFG = null;
+    try {
+        CFG = JSON.parse(btn0.getAttribute('data-music-config') || 'null');
+    } catch (e) {
+        CFG = null;
+    }
+    if (!CFG || !CFG.enable) return;
+
+    var VOLUME_KEY = 'fuwari-music-volume';
+    var NOTICE_MS = 3200;
+
+    /* ---------- 状态（挂 window，脚本重跑也不丢） ---------- */
+    var S = window.__musicFabState;
+    if (!S) {
+        var vol0 = parseFloat(CFG.volume);
+        if (!isFinite(vol0)) vol0 = 0.7;
+        try {
+            var saved = localStorage.getItem(VOLUME_KEY);
+            if (saved !== null) {
+                var v0 = parseFloat(saved);
+                if (isFinite(v0) && v0 >= 0 && v0 <= 1) vol0 = v0;
+            }
+        } catch (e) { /* 隐私模式忽略 */ }
+        S = {
+            list: [],
+            index: 0,
+            current: null,
+            playing: false,
+            loading: false,
+            open: false,
+            view: 'player',
+            shuffle: false,
+            repeat: 0,
+            volume: vol0,
+            muted: vol0 === 0,
+            time: 0,
+            duration: 0,
+            wantPlay: false,
+            blocked: false,
+            notice: '',
+            noticeAt: 0,
+            listLoaded: false
+        };
+        window.__musicFabState = S;
+    }
+
+    var audio = window.__musicFabAudio || (window.__musicFabAudio = new Audio());
+    audio.preload = 'metadata';
+    audio.volume = S.volume;
+    audio.muted = S.muted;
+
+    /* ---------- 小工具 ---------- */
+    function $(id) { return document.getElementById(id); }
+    function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function resolveUrl(u) {
+        if (!u) return '';
+        if (/^https?:\/\//i.test(u) || u.charAt(0) === '/') return u;
+        return '/' + u;
+    }
+
+    function fmtTime(sec) {
+        if (!isFinite(sec) || sec <= 0) return '0:00';
+        sec = Math.floor(sec);
+        var m = Math.floor(sec / 60);
+        var s = sec % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    /* ---------- 面板定位：贴着音乐按钮弹出 ---------- */
+    // 面板在「音乐按钮左侧」展开、底边与按钮底边齐平。
+    // 为什么不用「底边对齐整条工具栏的顶端」：本站工具栏有 6 个按钮（约 324px），
+    // 石蒜挂件还会把整条抬到 bottom:15rem（240px），两者相加约 564px —— 面板底边
+    // 会跑到离屏幕底 576px 处，点开后离按钮非常远。贴按钮走既近，也不遮工具栏其余按钮。
+    function positionPanel() {
+        var panel = $('music-panel');
+        var bar = document.querySelector('.floating-toolbar');
+        if (!panel || !bar || !panel.classList.contains('is-open')) return;
+
+        var btn = $('music-fab-btn');
+        var anchor = btn && btn.getBoundingClientRect();
+        // 按钮缺失或未布局（rect 全 0）时回退到整条工具栏
+        if (!anchor || !anchor.width || !anchor.bottom) anchor = bar.getBoundingClientRect();
+
+        var gap = 12;
+        var w = panel.offsetWidth || 320;
+
+        // 水平：面板右边缘落在按钮左侧 gap 处；左侧空间不够就贴视口左边 8px（窄屏降级）
+        panel.style.left = Math.max(8, anchor.left - gap - w) + 'px';
+        panel.style.right = 'auto';
+        // 垂直：面板底边与按钮底边齐平
+        panel.style.bottom = Math.max(8, window.innerHeight - anchor.bottom) + 'px';
+        // 高度：上限是按钮底边以上的可用空间，超出时面板内部滚动
+        panel.style.maxHeight = Math.max(220, anchor.bottom - gap * 2) + 'px';
+    }
+
+    /* ---------- 渲染 ---------- */
+    function coverUrl() {
+        if (!S.current) return '';
+        return resolveUrl(S.current.cover);
+    }
+
+    function renderAll() {
+        renderShell();
+        renderMeta();
+        renderTransport();
+        renderProgress();
+        renderList();
+    }
+
+    function renderShell() {
+        var btn = $('music-fab-btn');
+        var panel = $('music-panel');
+        if (btn) {
+            btn.classList.toggle('is-open', S.open);
+            btn.setAttribute('aria-expanded', S.open ? 'true' : 'false');
+            var label = S.current && S.current.title
+                ? '打开音乐控制中心：' + S.current.title
+                : '打开音乐控制中心';
+            btn.setAttribute('aria-label', S.open ? '收起音乐控制中心' : label);
+            btn.title = S.open ? '收起音乐控制中心' : label;
+        }
+        if (panel) {
+            panel.classList.toggle('is-open', S.open);
+            panel.setAttribute('aria-hidden', S.open ? 'false' : 'true');
+            var views = panel.querySelectorAll('.music-view');
+            for (var i = 0; i < views.length; i++) {
+                views[i].hidden = views[i].getAttribute('data-view') !== S.view;
+            }
+        }
+        if (S.open) positionPanel();
+    }
+
+    function renderMeta() {
+        var panel = $('music-panel');
+        var img = $('music-cover');
+        var title = $('music-title');
+        var artist = $('music-artist');
+        var notice = $('music-notice');
+
+        if (title) {
+            var t = S.current ? S.current.title : '未在播放';
+            title.textContent = t;
+            title.title = t;
+        }
+        if (artist) {
+            artist.textContent = S.current ? (S.current.artist || '未知艺术家') : '还没有曲目';
+        }
+        if (img) {
+            var src = coverUrl();
+            if (src) {
+                if (img.getAttribute('src') !== src) {
+                    img.classList.remove('is-loaded');
+                    img.src = src;
+                }
+            } else {
+                img.removeAttribute('src');
+                img.classList.remove('is-loaded');
+            }
+        }
+        if (notice) {
+            var text = S.notice || (S.loading && !S.list.length ? '歌单加载中…' : '');
+            notice.hidden = !text;
+            notice.textContent = text;
+        }
+        if (panel) {
+            panel.setAttribute('data-playing', S.playing ? '1' : '0');
+            panel.setAttribute('data-repeat', String(S.repeat));
+            panel.setAttribute('data-shuffle', S.shuffle ? '1' : '0');
+            panel.setAttribute('data-vol', S.muted || S.volume === 0 ? 'off' : (S.volume < 0.5 ? 'low' : 'high'));
+        }
+    }
+
+    function renderTransport() {
+        var btn = $('music-fab-btn');
+        if (btn) {
+            btn.classList.toggle('is-loading', S.loading);
+            btn.classList.toggle('is-playing', S.playing);
+        }
+        var panel = $('music-panel');
+        if (panel) {
+            panel.setAttribute('data-playing', S.playing ? '1' : '0');
+        }
+        var canSkip = S.list.length > 1;
+        ['music-prev', 'music-next'].forEach(function (id) {
+            var el = $(id);
+            if (el) {
+                el.disabled = !canSkip;
+                el.style.opacity = canSkip ? '' : '0.35';
+            }
+        });
+    }
+
+    function renderProgress() {
+        var total = S.duration || (S.current ? S.current.duration : 0) || 0;
+        var ratio = total > 0 ? clamp(S.time / total, 0, 1) : 0;
+        var fill = $('music-progress-fill');
+        if (fill) fill.style.width = (ratio * 100).toFixed(2) + '%';
+        var now = $('music-time-now');
+        if (now) now.textContent = fmtTime(S.time);
+        var tot = $('music-time-total');
+        if (tot) tot.textContent = fmtTime(total);
+        var bar = $('music-progress');
+        if (bar) bar.setAttribute('aria-valuenow', String(Math.round(ratio * 100)));
+
+        var vfill = $('music-volume-fill');
+        if (vfill) vfill.style.width = ((S.muted ? 0 : S.volume) * 100).toFixed(1) + '%';
+        var vbar = $('music-volume');
+        if (vbar) {
+            vbar.setAttribute('aria-valuenow', String(Math.round((S.muted ? 0 : S.volume) * 100)));
+        }
+    }
+
+    function eqHtml() {
+        return '<span class="music-eq' + (S.playing ? '' : ' is-paused') + '"><i></i><i></i><i></i></span>';
+    }
+
+    function renderList() {
+        var box = $('music-list');
+        var count = $('music-list-count');
+        if (count) count.textContent = S.list.length ? '(' + S.list.length + ')' : '';
+        if (!box) return;
+
+        if (!S.list.length) {
+            box.innerHTML = '<div class="music-item music-item--empty">' + esc(S.notice || '暂无曲目') + '</div>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < S.list.length; i++) {
+            var t = S.list[i];
+            var active = i === S.index;
+            html += '<div class="music-item' + (active ? ' is-active' : '') + '" role="option" tabindex="0" data-index="' + i + '" aria-selected="' + (active ? 'true' : 'false') + '">'
+                + '<span class="music-item__no">' + (active ? eqHtml() : (i + 1)) + '</span>'
+                + '<img class="music-item__cover" alt="" loading="lazy" decoding="async"' + (t.cover ? ' src="' + esc(resolveUrl(t.cover)) + '"' : '') + '>'
+                + '<span class="music-item__meta">'
+                + '<span class="music-item__title">' + esc(t.title || '未知曲目') + '</span>'
+                + '<span class="music-item__artist">' + esc(t.artist || '未知艺术家') + '</span>'
+                + '</span>'
+                + '</div>';
+        }
+        box.innerHTML = html;
+    }
+
+    var noticeSeq = 0;
+    function showNotice(msg, persist) {
+        S.notice = msg;
+        renderAll();
+        if (persist) return; // 「歌单加载失败」这类要一直留在界面上
+        var seq = ++noticeSeq;
+        setTimeout(function () {
+            if (seq !== noticeSeq) return;
+            S.notice = '';
+            renderAll();
+        }, NOTICE_MS);
+    }
+
+    /* ---------- 播放列表加载 ---------- */
+    function apiUrl() {
+        return String(CFG.metingApi || '')
+            .replace(':server', CFG.server || 'netease')
+            .replace(':type', CFG.type || 'playlist')
+            .replace(':id', CFG.id || '')
+            .replace(':auth', '')
+            .replace(':r', String(Date.now()));
+    }
+
+    function fromMeting(raw) {
+        var d = raw.duration;
+        if (typeof d === 'string') d = parseInt(d, 10);
+        d = Number(d);
+        if (!isFinite(d) || d < 0) d = 0;
+        if (d > 10000) d = Math.floor(d / 1000); // meting 偶有毫秒
+        return {
+            id: raw.id || raw.song_id || 0,
+            title: raw.name || raw.title || '未知曲目',
+            artist: raw.artist || raw.author || '未知艺术家',
+            cover: raw.pic || raw.cover || raw.image || '',
+            url: raw.url || '',
+            duration: d
+        };
+    }
+
+    function applyList(list) {
+        S.list = (list || []).filter(function (t) { return t && t.url; });
+        S.loading = false;
+        S.listLoaded = true;
+        if (!S.list.length) {
+            S.notice = CFG.mode === 'local' ? '本地播放列表为空' : '歌单为空';
+            renderAll();
+            return;
+        }
+        S.notice = '';
+        load(0, !!CFG.autoplay);
+    }
+
+    function loadPlaylist() {
+        if (CFG.mode === 'local') {
+            applyList((CFG.localPlaylist || []).map(function (t) {
+                return {
+                    id: t.id,
+                    title: t.title,
+                    artist: t.artist,
+                    cover: t.cover,
+                    url: t.url,
+                    duration: t.duration || 0
+                };
+            }));
+            return;
+        }
+
+        S.loading = true;
+        renderTransport();
+        renderMeta();
+
+        fetch(apiUrl(), { credentials: 'omit' })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(function (json) {
+                if (!Array.isArray(json)) throw new Error('bad payload');
+                applyList(json.map(fromMeting));
+            })
+            .catch(function () {
+                S.loading = false;
+                showNotice('歌单加载失败，稍后再试', true);
+                renderAll();
+            });
+    }
+
+    /* ---------- 播放控制 ---------- */
+    function load(i, play) {
+        if (!S.list.length) return;
+        if (i < 0) i = S.list.length - 1;
+        if (i >= S.list.length) i = 0;
+
+        S.index = i;
+        S.current = S.list[i];
+        S.time = 0;
+        S.duration = S.current.duration || 0;
+        S.wantPlay = !!play;
+        S.loading = !!S.current.url;
+        S.notice = '';
+
+        audio.src = resolveUrl(S.current.url);
+        audio.load();
+        renderAll();
+        if (play) playAudio();
+    }
+
+    function playAudio() {
+        if (!S.current || !S.current.url) return;
+        var p = audio.play();
+        if (p && p.catch) {
+            p.catch(function () {
+                // 自动播放被拦：记下来，等用户第一次点/按键时补播
+                S.blocked = true;
+                S.playing = false;
+                renderTransport();
+            });
+        }
+    }
+
+    function toggle() {
+        if (!S.list.length) {
+            if (!S.listLoaded && !S.loading) loadPlaylist();
+            return;
+        }
+        if (!S.current) { load(S.index, true); return; }
+        if (S.playing) audio.pause();
+        else playAudio();
+    }
+
+    function next() {
+        if (S.list.length <= 1) return;
+        var i;
+        if (S.shuffle) {
+            do { i = Math.floor(Math.random() * S.list.length); } while (S.list.length > 1 && i === S.index);
+        } else {
+            i = S.index + 1 >= S.list.length ? 0 : S.index + 1;
+        }
+        load(i, true);
+    }
+
+    function prev() {
+        if (S.list.length <= 1) return;
+        // 播了一会儿再按「上一首」，先回到本曲开头（和主流播放器一致）
+        if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+        load(S.index - 1, true);
+    }
+
+    function setVolume(v) {
+        v = clamp(v, 0, 1);
+        S.volume = v;
+        S.muted = v === 0;
+        audio.volume = v;
+        audio.muted = S.muted;
+        try { localStorage.setItem(VOLUME_KEY, String(v)); } catch (e) { /* 忽略 */ }
+        renderProgress();
+        renderMeta();
+    }
+
+    function toggleMute() {
+        S.muted = !S.muted;
+        audio.muted = S.muted;
+        if (!S.muted && S.volume === 0) { S.volume = 0.7; audio.volume = 0.7; }
+        renderProgress();
+        renderMeta();
+    }
+
+    function setOpen(open) {
+        S.open = !!open;
+        if (S.open) {
+            S.view = 'player';
+            if (!S.listLoaded && !S.loading) loadPlaylist();
+        }
+        renderShell(); // 打开时在 renderShell 里统一重算面板位置
+    }
+
+    /* ---------- 音频事件 ---------- */
+    audio.addEventListener('play', function () {
+        S.playing = true;
+        S.blocked = false;
+        S.loading = false;
+        renderTransport();
+        renderMeta();
+        renderList();
+    });
+    audio.addEventListener('pause', function () {
+        S.playing = false;
+        renderTransport();
+        renderMeta();
+        renderList();
+    });
+    audio.addEventListener('timeupdate', function () {
+        S.time = audio.currentTime || 0;
+        renderProgress();
+    });
+    audio.addEventListener('loadedmetadata', function () {
+        S.loading = false;
+        if (isFinite(audio.duration) && audio.duration > 1) {
+            S.duration = Math.round(audio.duration);
+        }
+        renderAll();
+        // 首次尝试就带播放意图的（autoplay / 用户点的下一首），元数据就绪后补播
+        if (S.wantPlay || S.playing) playAudio();
+    });
+    audio.addEventListener('waiting', function () {
+        S.loading = true;
+        renderTransport();
+    });
+    audio.addEventListener('playing', function () {
+        S.loading = false;
+        renderTransport();
+    });
+    audio.addEventListener('ended', function () {
+        if (S.repeat === 1) {
+            audio.currentTime = 0;
+            playAudio();
+            return;
+        }
+        if (S.repeat === 0 && S.index >= S.list.length - 1 && !S.shuffle) {
+            // 不循环：停在最后一首
+            S.playing = false;
+            renderTransport();
+            renderMeta();
+            renderList();
+            return;
+        }
+        next();
+    });
+    audio.addEventListener('error', function () {
+        S.loading = false;
+        S.playing = false;
+        if (!S.current) return;
+        var name = S.current.title || '这首';
+        if (S.list.length > 1) {
+            showNotice('「' + name + '」播放不了，自动跳下一首');
+            setTimeout(function () { next(); }, 1200);
+        } else {
+            showNotice('「' + name + '」播放失败');
+        }
+        renderAll();
+    });
+
+    /* ---------- 交互：拖拽条 ---------- */
+    function bindSlider(el, onRatio, onEnd) {
+        if (!el) return;
+        el.addEventListener('pointerdown', function (ev) {
+            ev.preventDefault();
+            if (el.setPointerCapture) {
+                try { el.setPointerCapture(ev.pointerId); } catch (e) { /* 忽略 */ }
+            }
+            el.classList.add('is-dragging');
+
+            function ratio(e) {
+                var r = el.getBoundingClientRect();
+                return clamp((e.clientX - r.left) / (r.width || 1), 0, 1);
+            }
+            onRatio(ratio(ev));
+
+            function move(e) { onRatio(ratio(e)); }
+            function up(e) {
+                el.classList.remove('is-dragging');
+                el.removeEventListener('pointermove', move);
+                el.removeEventListener('pointerup', up);
+                el.removeEventListener('pointercancel', up);
+                if (onEnd) onEnd(ratio(e));
+            }
+            el.addEventListener('pointermove', move);
+            el.addEventListener('pointerup', up);
+            el.addEventListener('pointercancel', up);
+        });
+    }
+
+    /* ---------- 绑定（幂等，脚本重跑也不会叠加） ---------- */
+    function bindUI() {
+        var btn = $('music-fab-btn');
+        if (btn && btn.getAttribute('data-music-bound') !== '1') {
+            btn.setAttribute('data-music-bound', '1');
+            btn.addEventListener('click', function () { setOpen(!S.open); });
+            btn.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setOpen(!S.open);
+                }
+            });
+        }
+
+        var map = {
+            'music-close': function () { setOpen(false); },
+            'music-list-back': function () { S.view = 'player'; renderShell(); },
+            'music-toggle': toggle,
+            'music-next': function () { next(); },
+            'music-prev': function () { prev(); },
+            'music-shuffle': function () {
+                S.shuffle = !S.shuffle;
+                if (S.shuffle) S.repeat = 0;
+                renderMeta();
+            },
+            'music-repeat': function () {
+                S.repeat = (S.repeat + 1) % 3;
+                if (S.repeat !== 0) S.shuffle = false;
+                renderMeta();
+            },
+            'music-mute': toggleMute,
+            'music-list-btn': function () {
+                S.view = S.view === 'playlist' ? 'player' : 'playlist';
+                renderShell();
+                renderList();
+            }
+        };
+        Object.keys(map).forEach(function (id) {
+            var el = $(id);
+            if (el && el.getAttribute('data-music-bound') !== '1') {
+                el.setAttribute('data-music-bound', '1');
+                el.onclick = map[id];
+            }
+        });
+
+        var progress = $('music-progress');
+        if (progress && progress.getAttribute('data-music-bound') !== '1') {
+            progress.setAttribute('data-music-bound', '1');
+            bindSlider(progress, function (r) {
+                // 拖动时只更新视觉，松手才真正 seek
+                var total = S.duration || 0;
+                var fill = $('music-progress-fill');
+                if (fill) fill.style.width = (r * 100).toFixed(2) + '%';
+                var now = $('music-time-now');
+                if (now && total > 0) now.textContent = fmtTime(r * total);
+            }, function (r) {
+                var total = S.duration || 0;
+                if (total > 0) {
+                    audio.currentTime = r * total;
+                    S.time = r * total;
+                }
+                renderProgress();
+            });
+            progress.addEventListener('keydown', function (e) {
+                var total = S.duration || 0;
+                if (!total) return;
+                if (e.key === 'ArrowRight') { audio.currentTime = Math.min(total, audio.currentTime + 5); e.preventDefault(); }
+                if (e.key === 'ArrowLeft') { audio.currentTime = Math.max(0, audio.currentTime - 5); e.preventDefault(); }
+            });
+        }
+
+        var volume = $('music-volume');
+        if (volume && volume.getAttribute('data-music-bound') !== '1') {
+            volume.setAttribute('data-music-bound', '1');
+            bindSlider(volume, function (r) { setVolume(r); });
+            volume.addEventListener('keydown', function (e) {
+                if (e.key === 'ArrowRight') { setVolume(S.volume + 0.05); e.preventDefault(); }
+                if (e.key === 'ArrowLeft') { setVolume(S.volume - 0.05); e.preventDefault(); }
+            });
+        }
+
+        var list = $('music-list');
+        if (list && list.getAttribute('data-music-bound') !== '1') {
+            list.setAttribute('data-music-bound', '1');
+            list.addEventListener('click', function (e) {
+                var item = e.target && e.target.closest ? e.target.closest('.music-item') : null;
+                if (!item || !item.getAttribute('data-index')) return;
+                var i = parseInt(item.getAttribute('data-index'), 10);
+                if (!isFinite(i)) return;
+                load(i, true);
+            });
+            list.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                var item = e.target && e.target.closest ? e.target.closest('.music-item') : null;
+                if (!item) return;
+                e.preventDefault();
+                var i = parseInt(item.getAttribute('data-index'), 10);
+                if (isFinite(i)) load(i, true);
+            });
+        }
+
+        var cover = $('music-cover');
+        if (cover && cover.getAttribute('data-music-bound') !== '1') {
+            cover.setAttribute('data-music-bound', '1');
+            cover.addEventListener('load', function () { cover.classList.add('is-loaded'); });
+            cover.addEventListener('error', function () { cover.classList.remove('is-loaded'); });
+        }
+    }
+
+    /* ---------- 首次交互补播（自动播放被拦时） ---------- */
+    function armResume() {
+        function resume() {
+            document.removeEventListener('pointerdown', resume);
+            document.removeEventListener('keydown', resume);
+            if (S.blocked) {
+                S.blocked = false;
+                playAudio();
+            }
+        }
+        document.addEventListener('pointerdown', resume);
+        document.addEventListener('keydown', resume);
+    }
+
+    /* ---------- 面板外点击收起 ---------- */
+    function bindOutsideClose() {
+        document.addEventListener('pointerdown', function (e) {
+            if (!S.open) return;
+            var panel = $('music-panel');
+            var btn = $('music-fab-btn');
+            var t = e.target;
+            if (panel && t && panel.contains(t)) return;
+            if (btn && t && btn.contains(t)) return;
+            setOpen(false);
+        });
+    }
+
+    /* ---------- 启动 ---------- */
+    function boot() {
+        bindUI();
+        renderAll();
+        // 预热：首屏不抢带宽，空闲时再把歌单拉回来（用户点开面板时也会立即拉）
+        var warm = function () {
+            if (!S.listLoaded && !S.loading) loadPlaylist();
+        };
+        if (window.requestIdleCallback) {
+            window.requestIdleCallback(warm, { timeout: 3000 });
+        } else {
+            setTimeout(warm, 1800);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
+    }
+
+    window.addEventListener('resize', function () {
+        if (S.open) positionPanel();
+    });
+
+    bindOutsideClose();
+    armResume();
+
+    // Swup 切页后：DOM 若被重建过（正常不会），这里自愈重绑一次
+    function rebind() {
+        bindUI();
+        renderAll();
+    }
+    if (window.swup && window.swup.hooks) {
+        window.swup.hooks.on('page:view', rebind);
+    } else {
+        document.addEventListener('swup:enable', function () {
+            if (window.swup && window.swup.hooks) window.swup.hooks.on('page:view', rebind);
+        });
+    }
+
+    // 供调试/其它脚本读取
+    window.musicPlayer = {
+        state: S,
+        audio: audio,
+        open: function () { setOpen(true); },
+        close: function () { setOpen(false); },
+        play: playAudio,
+        pause: function () { audio.pause(); },
+        next: next,
+        prev: prev,
+        reload: function () { S.listLoaded = false; loadPlaylist(); }
+    };
 })();
 </script>

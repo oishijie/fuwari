@@ -1,0 +1,359 @@
+---
+import { commentConfig, welcomeConfig } from "../../config";
+
+const cfg = welcomeConfig;
+/* 配置走 data-* 属性注入：下面的脚本是 is:raw，Astro 不会处理内容，也不能用 define:vars */
+const payload = JSON.stringify({ ...cfg, apiBase: commentConfig.apiBase });
+---
+
+{cfg.enable && (
+	<div
+		id="welcome-toast"
+		class="welcome-toast"
+		role="status"
+		aria-live="polite"
+		hidden
+		data-welcome-config={payload}
+	>
+		<span class="welcome-toast__badge" aria-hidden="true">
+			<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+				stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M12 20.5s-7-4.3-9.2-8.1a5.3 5.3 0 0 1 9.2-5.3 5.3 5.3 0 0 1 9.2 5.3C19 16.2 12 20.5 12 20.5Z"></path>
+			</svg>
+		</span>
+
+		<div class="welcome-toast__body">
+			<p class="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+				你好，来自 <span id="welcome-toast-place" class="text-[var(--primary)]">正在定位…</span> 的朋友
+			</p>
+			<p id="welcome-toast-meta" class="welcome-toast__meta">欢迎来到留心博客，慢慢逛～</p>
+			<p id="welcome-toast-ip" class="welcome-toast__ip" hidden></p>
+		</div>
+
+		<button id="welcome-toast-close" type="button" class="welcome-toast__close" aria-label="关闭欢迎提示">
+			<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+				stroke-width="2" stroke-linecap="round">
+				<path d="M6 6l12 12M18 6L6 18"></path>
+			</svg>
+		</button>
+	</div>
+)}
+
+<style>
+	/* 左下角固定浮层：右下角被悬浮工具栏(50)与石蒜挂件占着，放那儿必然打架。
+	   层级 45 —— 低于工具栏与目录抽屉，高于正文。 */
+	.welcome-toast {
+		position: fixed;
+		left: 1rem;
+		bottom: 1rem;
+		z-index: 45;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		width: min(21rem, calc(100vw - 2rem));
+		padding: 0.75rem 0.875rem;
+		border-radius: var(--radius-large);
+		background: var(--card-bg);
+		border: 1px solid var(--line-divider);
+		box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+		transform: translateY(1.25rem);
+		opacity: 0;
+		transition: transform 0.35s ease, opacity 0.35s ease;
+	}
+	.welcome-toast[hidden] {
+		display: none;
+	}
+	.welcome-toast.is-in {
+		transform: none;
+		opacity: 1;
+	}
+	.welcome-toast__badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 9999px;
+		color: var(--primary);
+		background: color-mix(in oklab, var(--primary) 14%, transparent);
+	}
+	.welcome-toast__body {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	.welcome-toast__meta,
+	.welcome-toast__ip {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: color-mix(in oklab, currentColor 65%, transparent);
+	}
+	/* IP 默认高斯模糊，悬停或键盘聚焦才看清 —— 防旁边的人顺手瞄一眼 */
+	.welcome-toast__ip {
+		filter: blur(4px);
+		transition: filter 0.25s ease;
+		cursor: pointer;
+		outline: none;
+	}
+	.welcome-toast__ip:hover,
+	.welcome-toast__ip:focus-visible {
+		filter: none;
+	}
+	.welcome-toast__close {
+		flex: none;
+		padding: 0.25rem;
+		margin: -0.125rem -0.125rem 0 0;
+		border-radius: 0.375rem;
+		color: color-mix(in oklab, currentColor 55%, transparent);
+		cursor: pointer;
+		transition: color 0.2s ease, background-color 0.2s ease;
+	}
+	.welcome-toast__close:hover {
+		color: var(--primary);
+	}
+	@media (max-width: 640px) {
+		.welcome-toast {
+			left: 50%;
+			right: auto;
+			bottom: 0.75rem;
+			width: calc(100vw - 1.5rem);
+			max-width: none;
+			transform: translateX(-50%) translateY(1.25rem);
+		}
+		.welcome-toast.is-in {
+			transform: translateX(-50%);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.welcome-toast {
+			transition: none;
+		}
+	}
+</style>
+
+<script is:raw is:inline>
+/* =====================================================================
+ * 右下角→左下角「欢迎提示」浮层
+ *
+ * 设计要点：
+ *  1) 站点级浮层 —— 宿主挂在 Swup 容器（main / #toc）之外，切页不重建，脚本只跑一次。
+ *  2) 数据来自自建 Worker /geo：Cloudflare 边缘数据 + 国内 IP 库补正。区级地址与经纬度
+ *     都由服务端拼好，前端只负责展示，这里不做任何地址解析。
+ *  3) 本地缓存 1 小时 —— /geo 每次都要打国内库，不能让访客每次刷新都触发一遍。
+ *  4) 两个事件都监听（astro:page-load / swup:page:view）：同一次导航可能两者都触发，
+ *     用「同 URL 1.2 秒内只响应一次」兜住，否则浮层会闪两下。
+ *  5) 脚本可能在 Swup 更新 <head> 时重跑，用 window 标志位兜住。
+ * ===================================================================== */
+(function () {
+    var root = document.getElementById('welcome-toast');
+    if (!root || window.__welcomeToastBooted) return;
+    window.__welcomeToastBooted = true;
+
+    var CFG = null;
+    try {
+        CFG = JSON.parse(root.getAttribute('data-welcome-config') || 'null');
+    } catch (e) {
+        CFG = null;
+    }
+    if (!CFG || !CFG.enable) return;
+
+    var API_BASE = String(CFG.apiBase || '').replace(/\/+$/, '');
+    var CACHE_KEY = 'lx-welcome-geo';
+    var CACHE_TTL = 3600 * 1000;
+    var SESSION_KEY = 'lx-welcome-shown';
+    var FETCH_TIMEOUT = 5000;
+
+    var placeEl = document.getElementById('welcome-toast-place');
+    var metaEl = document.getElementById('welcome-toast-meta');
+    var ipEl = document.getElementById('welcome-toast-ip');
+    var closeBtn = document.getElementById('welcome-toast-close');
+
+    /* 边缘数据（降级路径）只有英文省份名，这里映射成中文；命中区级数据时服务端已给中文，用不到 */
+    var PROVINCE_MAP = {
+        Beijing: '北京市', Shanghai: '上海市', Tianjin: '天津市', Chongqing: '重庆市',
+        Hebei: '河北省', Shanxi: '山西省', Liaoning: '辽宁省', Jilin: '吉林省',
+        Heilongjiang: '黑龙江省', Jiangsu: '江苏省', Zhejiang: '浙江省', Anhui: '安徽省',
+        Fujian: '福建省', Jiangxi: '江西省', Shandong: '山东省', Henan: '河南省',
+        Hubei: '湖北省', Hunan: '湖南省', Guangdong: '广东省', Hainan: '海南省',
+        Sichuan: '四川省', Guizhou: '贵州省', Yunnan: '云南省', Shaanxi: '陕西省',
+        Gansu: '甘肃省', Qinghai: '青海省', Guangxi: '广西壮族自治区',
+        'Inner Mongolia': '内蒙古自治区', Ningxia: '宁夏回族自治区',
+        Xinjiang: '新疆维吾尔自治区', 'Xinjiang Uyghur Autonomous Region': '新疆维吾尔自治区',
+        Tibet: '西藏自治区'
+    };
+
+    /* 非中国大陆访客直接展示国家名；港澳台按规范写法 */
+    var COUNTRY_MAP = {
+        CN: '中国', HK: '中国香港', MO: '中国澳门', TW: '中国台湾',
+        US: '美国', JP: '日本', KR: '韩国', SG: '新加坡', MY: '马来西亚',
+        TH: '泰国', VN: '越南', PH: '菲律宾', ID: '印度尼西亚', IN: '印度',
+        GB: '英国', DE: '德国', FR: '法国', NL: '荷兰', ES: '西班牙',
+        IT: '意大利', RU: '俄罗斯', CA: '加拿大', AU: '澳大利亚', NZ: '新西兰', BR: '巴西'
+    };
+
+    var timer = null;
+    var last = { url: '', at: 0 };
+
+    function haversineKm(lat, lon) {
+        var R = 6371;
+        var rad = Math.PI / 180;
+        var dLat = (lat - CFG.homeLat) * rad;
+        var dLon = (lon - CFG.homeLon) * rad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(CFG.homeLat * rad) * Math.cos(lat * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        var km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return isFinite(km) ? Math.round(km) : null;
+    }
+
+    /* 只有 IP 形态合法才展示，避免把服务端的异常值印出来 */
+    function isValidIp(ip) {
+        if (/^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$/.test(ip)) return true;
+        return ip.indexOf(':') >= 0 && /^[0-9a-fA-F:]+$/.test(ip) && ip.length >= 2;
+    }
+
+    function readCache() {
+        try {
+            var raw = localStorage.getItem(CACHE_KEY);
+            if (!raw) return null;
+            var o = JSON.parse(raw);
+            if (!o || typeof o !== 'object' || !o.at || Date.now() - o.at > CACHE_TTL) return null;
+            return o;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function writeCache(o) {
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(o));
+        } catch (e) {
+            /* 隐私模式下写不进去，忽略 */
+        }
+    }
+
+    /* 把 /geo 的原始响应压成展示需要的最小结构，顺便算好距离 */
+    function normalize(d) {
+        var country = String(d.country || '');
+        var source = String(d.source || 'cf');
+        var place;
+        if (source !== 'cf') {
+            place = String(d.locationText || '');
+        } else if (country && country !== 'CN') {
+            place = COUNTRY_MAP[country] || '海外';
+        } else {
+            place = PROVINCE_MAP[String(d.province || '')] || '中国';
+        }
+        if (!place) place = '远方';
+
+        var lat = Number(d.lat);
+        var lon = Number(d.lon);
+        var km = isFinite(lat) && isFinite(lon) && (lat !== 0 || lon !== 0) ? haversineKm(lat, lon) : null;
+
+        return { place: place, km: km, ip: String(d.ip || ''), source: source, at: Date.now() };
+    }
+
+    function loadGeo() {
+        var cached = readCache();
+        if (cached) return Promise.resolve(cached);
+        if (!API_BASE) return Promise.resolve(null);
+
+        var ctl = new AbortController();
+        var t = setTimeout(function () { ctl.abort(); }, FETCH_TIMEOUT);
+        return fetch(API_BASE + '/geo', { signal: ctl.signal })
+            .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(function (data) {
+                var payload = normalize(data);
+                writeCache(payload);
+                return payload;
+            })
+            .catch(function () {
+                return null;
+            })
+            .then(function (v) {
+                clearTimeout(t);
+                return v;
+            });
+    }
+
+    function render(p) {
+        if (placeEl) placeEl.textContent = p.place;
+        if (metaEl) {
+            if (p.km === null) metaEl.textContent = '欢迎来到留心博客，慢慢逛～';
+            else if (p.km <= 30) metaEl.textContent = '你就在我附近（大约 ' + p.km + ' 公里）';
+            else metaEl.textContent = '你现在离我大约 ' + p.km + ' 公里';
+        }
+        if (ipEl) {
+            var show = CFG.showIp && isValidIp(p.ip);
+            ipEl.hidden = !show;
+            if (show) {
+                ipEl.textContent = 'IP：' + p.ip;
+                ipEl.title = '你的 IP（默认模糊，悬停查看）';
+                ipEl.tabIndex = 0;
+            }
+        }
+    }
+
+    function hide() {
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+        root.classList.remove('is-in');
+        setTimeout(function () {
+            if (!root.classList.contains('is-in')) root.hidden = true;
+        }, 400);
+    }
+
+    function show() {
+        root.hidden = false;
+        void root.offsetWidth;   // 强制回流，保证从 hidden 恢复后过渡能跑起来
+        root.classList.add('is-in');
+
+        var cached = readCache();
+        if (cached) render(cached);
+        loadGeo().then(function (p) {
+            if (p && root.classList.contains('is-in')) render(p);
+        });
+
+        if (CFG.duration > 0) {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(hide, CFG.duration);
+        }
+    }
+
+    function shouldShow() {
+        if (CFG.mode === 'home') {
+            var p = location.pathname;
+            return p === '/' || p === '/index.html';
+        }
+        if (CFG.mode === 'once') {
+            try {
+                if (sessionStorage.getItem(SESSION_KEY)) return false;
+                sessionStorage.setItem(SESSION_KEY, '1');
+            } catch (e) {
+                /* 存不进去就按「每次都弹」处理，不影响功能 */
+            }
+        }
+        return true;
+    }
+
+    function maybeShow() {
+        var url = location.pathname;
+        var now = Date.now();
+        if (last.url === url && now - last.at < 1200) return;   // 两个事件同时到达，只响应一次
+        last.url = url;
+        last.at = now;
+        if (!shouldShow()) return;
+        show();
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', hide);
+    document.addEventListener('astro:page-load', maybeShow);
+    document.addEventListener('swup:page:view', maybeShow);
+    maybeShow();
+})();
+</script>

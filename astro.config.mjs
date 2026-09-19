@@ -162,6 +162,15 @@ export default defineConfig({
 		],
 	},
 	vite: {
+		server: {
+			// 本机 localhost 优先解析到 IPv6 的 ::1，而 dev server 只监听 IPv4 回环
+			// 127.0.0.1：页面还能靠浏览器的 IPv4 回退加载，但热更新用的 WebSocket
+			// 会连不上，于是「文件已改、服务端已重渲染，浏览器却不刷新」。
+			// 把 HMR 目标固定在 IPv4 回环地址，保存即时推送。
+			hmr: {
+				host: "127.0.0.1",
+			},
+		},
 		build: {
 			rollupOptions: {
 				onwarn(warning, warn) {
