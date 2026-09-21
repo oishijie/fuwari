@@ -50,4 +50,12 @@ export const zh_TW: Translation = {
 	[Key.notFoundTitle]: "頁面不存在",
 	[Key.notFoundDesc]: "連結可能已失效，或者位址輸錯了。試試站內搜尋，或者回首頁重新找找。",
 	[Key.backToHome]: "回到首頁",
+
+	[Key.immersiveReading]: "沉浸閱讀",
+	[Key.exitImmersiveReading]: "結束沉浸閱讀",
+	[Key.tocTitle]: "文章目錄",
+	[Key.tocExpand]: "展開目錄",
+	[Key.tocCollapse]: "收合目錄",
+	[Key.collapseSidebar]: "收合側欄",
+	[Key.sakanaMove]: "拖曳移動，雙擊復位",
 };

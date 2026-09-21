@@ -3,6 +3,7 @@ import type {
 	AISummaryConfig,
 	CommentConfig,
 	ExpressiveCodeConfig,
+	ImmersiveReadingConfig,
 	LicenseConfig,
 	MusicConfig,
 	NavBarConfig,
@@ -196,12 +197,16 @@ export const petConfig: PetConfig = {
 	hideOnMobile: true,
 };
 
-// 右下角「石蒜模拟器」挂件（Sakana! Widget，MIT 代码 + 角色插画不可商用，见 public/lib/LICENSE-sakana-widget.txt）
+// 「石蒜模拟器」挂件（Sakana! Widget，MIT 代码 + 角色插画不可商用，见 public/lib/LICENSE-sakana-widget.txt）
 // 玩法：按住立牌拖动、松手弹跳；底座控制栏依次为 切换角色 / 自走模式 / 上游仓库 / 关闭
+// 挪位置：按住左上角小拖动柄拖到任意处（位置记忆在浏览器里），双击拖动柄回默认角
 // 换角色：改 character 为 chisato 或 takina；关掉：enable 设为 false
 export const sakanaConfig: SakanaConfig = {
 	enable: true,
 	character: "chisato", // 千束；takina 为泷奈
+	position: "bottom-left", // 默认停靠角：左下（拖过之后以本地记忆为准）
+	movable: true, // 左上角拖动柄：挪整个挂件的位置
+	rememberPosition: true, // 记住拖过的位置，刷新与切页都保持
 	size: 200, // SDK 默认值；容器与组件同尺寸（人物图 = size/1.25 = 160px，canvas = size×1.5 = 300px）
 	controls: true,
 	rod: true,
@@ -245,4 +250,12 @@ export const welcomeConfig: WelcomeConfig = {
 	homeLat: 26.0745, // 福州市
 	homeLon: 119.2965,
 	showIp: true,
+};
+
+export const immersiveReadingConfig: ImmersiveReadingConfig = {
+	enable: true,
+	defaultOn: false,
+	tocEnabled: true,
+	tocPosition: "left",
+	readingWidth: "46rem",
 };

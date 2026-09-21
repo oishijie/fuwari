@@ -50,4 +50,12 @@ export const th: Translation = {
 	[Key.notFoundTitle]: "ไม่พบหน้าที่ต้องการ",
 	[Key.notFoundDesc]: "ลิงก์อาจเสียหรือพิมพ์ที่อยู่ผิด ลองค้นหา หรือกลับไปหน้าแรก",
 	[Key.backToHome]: "กลับหน้าแรก",
+
+	[Key.immersiveReading]: "โหมดอ่านแบบเต็มจอ",
+	[Key.exitImmersiveReading]: "ออกจากโหมดอ่านแบบเต็มจอ",
+	[Key.tocTitle]: "ในหน้านี้",
+	[Key.tocExpand]: "ขยายสารบัญ",
+	[Key.tocCollapse]: "ย่อสารบัญ",
+	[Key.collapseSidebar]: "ย่อแถบด้านข้าง",
+	[Key.sakanaMove]: "ลากเพื่อย้าย · ดับเบิลคลิกเพื่อรีเซ็ต",
 };

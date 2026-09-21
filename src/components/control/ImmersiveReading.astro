@@ -1,0 +1,342 @@
+---
+/**
+ * 沉浸阅读（Immersive Reading）—— 阅读模式三档中的**最深一档**
+ * 复刻自 blog.cuteleaf.cn 的 ImmersiveReading.astro（同源 Astro 站，客户端脚本压缩后仅 4.5KB）。
+ *
+ * 🔴 单状态源（2026-09-20 合并）：档位不再另起一套 body class，而是收进
+ *    <html data-sidebar="off|expanded|collapsed|immersive">，与「只收侧栏」的折叠共用同一个
+ *    状态机（在 MainGridLayout.astro 的内联脚本里，工具栏那枚按钮循环切换三档）。
+ *    好处：档位天然互斥，不必再靠 !important 抢特异性，也不再存在
+ *    「折叠与沉浸两个开关同时开着算哪一档」的未定义状态。
+ *
+ *   本组件因此只负责三件事：
+ *     ① 沉浸档的全部样式（选择器统一写 html[data-sidebar="immersive"] ...）
+ *     ② 目录栏与目录浮钮的 DOM
+ *     ③ 把配置注入 :root（量宽）与 #immersive-root（data-*，供状态机读取）
+ *
+ * 🔴 目录栏不另起炉灶，直接**接管现有的 #toc-wrapper**：
+ *   目录数据、滚动高亮、点击跳转全部沿用 TOC.astro 里的 <table-of-contents> 自定义元素，
+ *   省掉第二份 TOCManager；而且 #toc 本来就在 Swup 的替换列表里（["main", "#toc"]），切页会自动重建目录。
+ *
+ * 🔴 本组件必须渲染在 Swup 容器之外（同 BackToTop），否则每次切页实例与滚动状态都会丢。
+ *   也正因如此，脚本**不能靠编译期注入判断"当前是不是文章页"**（那条踩过坑）——一律运行时读 location。
+ */
+import { Icon } from "astro-icon/components";
+import { immersiveReadingConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
+
+const cfg = immersiveReadingConfig;
+const enable = cfg.enable === true;
+const tocEnabled = cfg.tocEnabled !== false;
+const tocPosition = cfg.tocPosition === "right" ? "right" : "left";
+// 沉浸档的正文量宽（比折叠档的 --read-width 更窄，行更聚焦）。
+// 注入 :root 的 --immersive-width，由 CSS 在沉浸档时覆盖 --read-width。
+const readingWidth =
+	typeof cfg.readingWidth === "string" && cfg.readingWidth.trim() ? cfg.readingWidth.trim() : "46rem";
+
+const tTocExpand = i18n(I18nKey.tocExpand);
+const tTocCollapse = i18n(I18nKey.tocCollapse);
+---
+
+{enable && (
+    <div
+        id="immersive-root"
+        data-toc-enabled={tocEnabled ? "1" : "0"}
+        data-toc-position={tocPosition}
+        data-reading-width={readingWidth}
+        data-default-on={cfg.defaultOn === true ? "1" : "0"}
+        data-t-toc-expand={tTocExpand}
+        data-t-toc-collapse={tTocCollapse}
+    >
+        {/* 目录开合浮钮：目录栏收起时停在左上角；展开后会被目录栏盖住，故由 CSS 自动隐去 */}
+        {tocEnabled && (
+            <button id="immersive-toc-btn" type="button" class="immersive-fab" aria-label={tTocExpand} title={tTocExpand}>
+                <Icon name="material-symbols:format-list-bulleted-rounded" class="immersive-fab-icon"></Icon>
+            </button>
+        )}
+
+    </div>
+)}
+
+<style is:global>
+/* ==========================================================================
+   沉浸阅读
+   ==========================================================================
+   档位状态机在 MainGridLayout.astro 的内联脚本里（工具栏那枚按钮循环切换）；
+   本组件只负责：沉浸态样式 + 目录栏 DOM + 配置注入。
+   -------------------------------------------------------------------------- */
+
+:root {
+    /* 沉浸目录栏宽度。与 --toc-width（按视口余量算的）无关，是固定值 */
+    --immersive-toc-width: 20rem;
+    /* 沉浸档的正文量宽兜底值；实际值由脚本按 immersiveReadingConfig.readingWidth 注入 */
+    --immersive-width: 46rem;
+}
+
+/* ===== 浮钮（退出 / 目录开合） ===== */
+.immersive-fab {
+    display: none;
+    position: fixed;
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    /* 🔴 必须显式声明 color：<body> 没有 color 声明，浮层里一旦 color:inherit
+       就会继承到浏览器初始值（黑）——亮色看不出，暗色直接变成深底黑字。 */
+    color: var(--primary);
+    background: var(--card-bg);
+    border: 1px solid var(--line-divider);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+.immersive-fab:hover {
+    background: var(--btn-plain-bg-hover);
+}
+.immersive-fab:active {
+    transform: scale(0.92);
+}
+.immersive-fab-icon {
+    font-size: 1.5rem;
+}
+#immersive-toc-btn {
+    top: 1rem;
+    left: 1rem;
+}
+
+/* 沉浸态才现身：退出钮常驻；目录钮只在目录收起时出现（展开后被目录栏盖住没意义） */
+html[data-sidebar="immersive"]:not(.immersive-toc-open) #immersive-toc-btn {
+    display: flex;
+}
+
+@media (min-width: 1024px) {
+    .immersive-fab {
+        width: 3rem;
+        height: 3rem;
+    }
+    #immersive-toc-btn {
+        top: 1.5rem;
+        left: 1.5rem;
+    }
+}
+
+/* ===== 一、隐去外围 =====
+   #top-row 一次带走导航与 banner；#sidebar 是整条侧栏；.footer 有两份（lg 显示 / 隐藏各一）。
+   侧栏折叠开关（#sidebar-toggle）也一并收起——侧栏都没了，开关没有意义。 */
+html[data-sidebar="immersive"] #top-row,
+html[data-sidebar="immersive"] #sidebar,
+html[data-sidebar="immersive"] .footer,
+html[data-sidebar="immersive"] #sidebar-toggle,
+html[data-sidebar="immersive"] #banner-credit {
+    display: none !important;
+}
+
+/* ===== 二、主面板顶到视口顶 =====
+   #main-panel 有个服务端注入的内联 top（= banner 高度），必须 !important 压掉。 */
+html[data-sidebar="immersive"] #main-panel {
+    top: 0 !important;
+    padding-top: 1rem !important;
+    padding-bottom: 3rem !important;
+}
+
+html[data-sidebar="immersive"] #main-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    gap: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    /* 压掉 .enable-banner.is-home #main-grid 的 translate-y（首页用，文章页其实没有，保险起见） */
+    transform: none !important;
+}
+
+/* ===== 三、正文限宽居中 =====
+   ⚠️ 量宽**复用折叠档那一个 --read-width**（定义在 MainGridLayout 的 :root 上），
+   只是在沉浸档把它改成更窄的 --immersive-width —— 两档共用一条宽度变量，
+   调宽窄只需要动一个数字，不会再出现「两处各写一个量宽、改了一处忘了另一处」。
+   ⚠️ 左右 padding 要写死覆盖折叠态那套 —— 那套是按 1168px 容器算的，
+   沉浸态容器已经变成整条视口，继续用它会把正文挤没。 */
+html[data-sidebar="immersive"] {
+    --read-width: var(--immersive-width, 46rem);
+}
+html[data-sidebar="immersive"] #post-container {
+    width: 100% !important;
+    max-width: var(--read-width) !important;
+    margin: 0 auto !important;
+    padding-left: 2rem !important;
+    padding-right: 2rem !important;
+}
+@media (min-width: 1024px) {
+    html[data-sidebar="immersive"] #post-container {
+        padding-left: 2.5rem !important;
+        padding-right: 2.5rem !important;
+    }
+}
+
+/* ===== 四、目录栏 =====
+   接管 #toc-wrapper：从「视口右侧的绝对定位块」改造成「全高固定侧栏」。
+   它原本的父级带 `hidden 2xl:block`，窄屏是 display:none，所以父级也要放行。 */
+html[data-sidebar="immersive"] #toc-outer {
+    display: block !important;
+    /* ⚠️ 必须把 z-index 抬起来：这个容器原本是 z-0，而主面板 #main-panel 是 z-30 ——
+       不抬的话整条目录栏会被正文卡片盖住。45 夹在主面板（30）与工具栏（50）之间：
+       目录栏盖住正文，工具栏仍压在最上面。 */
+    z-index: 45 !important;
+}
+
+html[data-sidebar="immersive"] #toc-wrapper {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    width: var(--immersive-toc-width) !important;
+    height: auto !important;
+    display: flex !important; /* 覆盖 Tailwind 的 hidden */
+    flex-direction: column;
+    align-items: stretch !important; /* 覆盖 items-center */
+    background: var(--card-bg);
+    border-right: 1px solid var(--line-divider);
+    border-left: none;
+    z-index: 40;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease, opacity 0.25s ease, visibility 0.25s ease;
+}
+/* 右停靠（immersiveReadingConfig.tocPosition = "right"） */
+html[data-sidebar="immersive"].immersive-toc-right #toc-wrapper {
+    left: auto !important;
+    right: 0 !important;
+    border-left: 1px solid var(--line-divider);
+    border-right: none;
+    transform: translateX(100%);
+}
+/* 展开态：推入视口 */
+html[data-sidebar="immersive"].immersive-toc-open #toc-wrapper {
+    transform: none !important;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+/* 目录滚动容器：原来是 fixed top-14，改成撑满侧栏的 flex 子项 */
+html[data-sidebar="immersive"] #toc-inner-wrapper {
+    /* ⚠️ 必须保持 positioned（relative），不能用 static：
+       目录里的 #active-indicator 是 absolute，脚本按「#toc-inner-wrapper 的 rect.top」算它的 top。
+       这条链上若没有 positioned 祖先，indicator 会改以 #toc-wrapper 为基准，整块上偏一个标题条高度。 */
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 1rem 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* 目录栏标题条（DOM 在 MainGridLayout 的 #toc-wrapper 里，仅沉浸态显示） */
+#immersive-toc-header {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.9rem 1rem 0.6rem;
+    border-bottom: 1px solid var(--line-divider);
+}
+html[data-sidebar="immersive"] #immersive-toc-header {
+    display: flex;
+}
+.immersive-toc-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+.immersive-toc-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    border: none;
+    background: none;
+    /* 🔴 独立控件一律显式声明 color：body 无 color 声明时会继承到初始值（黑） */
+    color: var(--primary);
+    cursor: pointer;
+    transition: background 0.14s ease;
+}
+.immersive-toc-close:hover {
+    background: var(--btn-plain-bg-hover);
+}
+.immersive-toc-close-icon {
+    font-size: 1.15rem;
+    transition: transform 0.25s ease;
+}
+/* 右停靠时收起箭头翻向另一侧 */
+html[data-sidebar="immersive"].immersive-toc-right .immersive-toc-close-icon {
+    transform: rotate(180deg);
+}
+
+/* ===== 五、展开时给正文让位 ===== */
+@media (min-width: 1024px) {
+    html[data-sidebar="immersive"].immersive-toc-open #main-grid {
+        padding-left: calc(var(--immersive-toc-width) + 1rem) !important;
+    }
+    html[data-sidebar="immersive"].immersive-toc-open.immersive-toc-right #main-grid {
+        padding-left: 0 !important;
+        padding-right: calc(var(--immersive-toc-width) + 1rem) !important;
+    }
+}
+</style>
+
+<script>
+/* 沉浸档的「外围」脚本。
+ * 🔴 档位状态机不在这里 —— 它统一在 MainGridLayout.astro 的内联脚本里
+ *    （那一段必须在网格渲染前同步写入 <html data-sidebar>，否则首屏会跳变）。
+ *    本脚本只做两件事：
+ *      ① 把 immersiveReadingConfig.readingWidth 注入 :root 的 --immersive-width
+ *      ② 把目录栏的两个按钮接到 window.toggleImmersiveTOC
+ * 🔴 启动块放在最后，避免 let/const 声明在后段时顶层调用踩 TDZ。 */
+(function () {
+    var root = document.getElementById("immersive-root") as HTMLElement | null;
+    if (!root) return;
+
+    // 量宽由站点配置决定。写到 :root 而不是 define:vars —— 后者会注入 <style>，
+    // 而 Swup 的 head-plugin 会清掉「新页面没有」的节点（详见项目铁律）。
+    var readingWidth = root.dataset.readingWidth || "46rem";
+    document.documentElement.style.setProperty("--immersive-width", readingWidth);
+
+    // 目录栏的两个按钮：浮钮（目录收起时停在左上角）与标题条上的收起钮。
+    // 二者都在 Swup 替换目标（["main", "#toc"]）之外 → 切页不重建，绑一次即可；
+    // 但本组件脚本可能早于它们解析，故补一次 DOMContentLoaded 兜底。
+    function bindTocButtons() {
+        var tb = document.getElementById("immersive-toc-btn");
+        if (tb && !tb.dataset.bound) {
+            tb.dataset.bound = "1";
+            tb.addEventListener("click", function () {
+                if (window.toggleImmersiveTOC) window.toggleImmersiveTOC();
+            });
+        }
+        var hb = document.getElementById("immersive-toc-close");
+        if (hb && !hb.dataset.bound) {
+            hb.dataset.bound = "1";
+            hb.addEventListener("click", function () {
+                if (window.toggleImmersiveTOC) window.toggleImmersiveTOC();
+            });
+        }
+    }
+    bindTocButtons();
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", bindTocButtons);
+    }
+})();
+</script>

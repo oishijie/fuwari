@@ -50,4 +50,12 @@ export const vi: Translation = {
 	[Key.notFoundTitle]: "Không tìm thấy trang",
 	[Key.notFoundDesc]: "Liên kết có thể đã hỏng hoặc địa chỉ bị nhập sai. Hãy thử tìm kiếm hoặc quay lại trang chủ.",
 	[Key.backToHome]: "Về trang chủ",
+
+	[Key.immersiveReading]: "Đọc tập trung",
+	[Key.exitImmersiveReading]: "Thoát chế độ đọc tập trung",
+	[Key.tocTitle]: "Trong trang này",
+	[Key.tocExpand]: "Mở mục lục",
+	[Key.tocCollapse]: "Thu gọn mục lục",
+	[Key.collapseSidebar]: "Thu gọn thanh bên",
+	[Key.sakanaMove]: "Kéo để di chuyển · nhấp đúp để đặt lại",
 };

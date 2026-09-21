@@ -50,4 +50,12 @@ export const es: Translation = {
 	[Key.notFoundTitle]: "Página no encontrada",
 	[Key.notFoundDesc]: "El enlace puede estar roto o la dirección mal escrita. Intenta buscar o vuelve al inicio.",
 	[Key.backToHome]: "Volver al inicio",
+
+	[Key.immersiveReading]: "Lectura inmersiva",
+	[Key.exitImmersiveReading]: "Salir de la lectura inmersiva",
+	[Key.tocTitle]: "En esta página",
+	[Key.tocExpand]: "Expandir índice",
+	[Key.tocCollapse]: "Contraer índice",
+	[Key.collapseSidebar]: "Contraer barra lateral",
+	[Key.sakanaMove]: "Arrastra para mover · doble clic para restablecer",
 };

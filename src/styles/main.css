@@ -65,23 +65,43 @@
         background: color-mix(in oklab, var(--primary), transparent 90%);
     }
 
-    /* 右下角「石蒜模拟器」挂件（Sakana! Widget）宿主。
+    /* 「石蒜模拟器」挂件（Sakana! Widget）宿主。
        必须是 BFC 且有确定尺寸：SDK 的 autoFit 靠 ResizeObserver 量它的大小；
-       宽高与 z-index 由客户端脚本按 sakanaConfig 注入 inline style，这里只管定位。
-       pointer-events:none 不可省略——挂件自身的立牌与控制栏才是可点区域，
-       否则卸载后这个 fixed 空盒会挡住右下角一大片点击。 */
+       宽高与 z-index 由客户端脚本按 sakanaConfig 注入 inline style，这里只管停靠角。
+       停靠角走 [data-pos]（属性写在宿主标签上，SDK mount 时的 cloneNode 会一并继承），
+       所以默认位置在 SSR 出来的那一刻就是对的，不会有「先在左上角闪一下」。
+       🔴 pointer-events:none 不可省略 —— 挂件自身的立牌与控制栏才是可点区域，
+       否则卸载后这个 fixed 空盒会挡住一大片点击；左上角那个拖动柄自己放开了 pointer-events。
+       transition 只服务于「欢迎浮层让位」（见文件末尾），拖过的挂件有 inline bottom 不受影响。 */
     .sakana-host {
         @apply fixed pointer-events-none;
-        right: 1rem;
-        bottom: 1rem;
         /* 层级：正文 0 < 浮层 40 < 工具栏 50 < 遮罩 55 < 抽屉 60 */
         z-index: 40;
+        transition: bottom 0.3s ease;
     }
 
+    .sakana-host[data-pos="bottom-left"]  { left: 1rem;  bottom: 1rem; }
+    .sakana-host[data-pos="bottom-right"] { right: 1rem; bottom: 1rem; }
+    .sakana-host[data-pos="top-left"]     { left: 1rem;  top: 1rem; }
+    .sakana-host[data-pos="top-right"]    { right: 1rem; top: 1rem; }
+
     @media (min-width: 1024px) {
-        .sakana-host {
-            right: 1.5rem;
-        }
+        .sakana-host[data-pos="bottom-left"]  { left: 1.5rem; }
+        .sakana-host[data-pos="bottom-right"] { right: 1.5rem; }
+        .sakana-host[data-pos="top-left"]     { left: 1.5rem; }
+        .sakana-host[data-pos="top-right"]    { right: 1.5rem; }
+    }
+
+    /* 底座控制栏第 3 格：上游原本是「GitHub 仓库」链接，本站把它改造成拖动柄
+       （DOM 由 Layout.astro 的脚本改造）。按住它把整个挂件挪到视口任意位置，双击复位。
+       ⚠️ 只补这几个属性，尺寸与配色全部沿用 .sakana-widget-ctrl-item，别另起一套。 */
+    .sakana-move-handle {
+        cursor: grab;
+        touch-action: none; /* 触屏上按住拖动 = 挪位置，别顺手把页面滚了 */
+        -webkit-tap-highlight-color: transparent;
+    }
+    .sakana-host.is-moving .sakana-move-handle {
+        cursor: grabbing;
     }
 
     .link-underline {
@@ -178,4 +198,12 @@
         color: var(--codeblock-bg);
     }
   }
+}
+
+/* 欢迎浮层默认也蹲在左下角（left:1rem; bottom:1rem，宽 21rem、6 秒后自动消失），
+   与挂件的默认角必然重叠。浮层在时先把挂件抬到它上方，浮层一走就落回。
+   ⚠️ 只对「没被拖动过」的挂件生效：拖过的挂件用 inline top/left 定位、
+   inline 的 bottom:auto 会自然压过这里，正是想要的效果（那时它多半也不在左下角了）。 */
+html[data-welcome="on"] .sakana-host[data-pos="bottom-left"] {
+    bottom: calc(1rem + 6.5rem);
 }

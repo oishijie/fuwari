@@ -50,4 +50,12 @@ export const ja: Translation = {
 	[Key.notFoundTitle]: "ページが見つかりません",
 	[Key.notFoundDesc]: "リンクが切れているか、アドレスが間違っている可能性があります。検索するか、ホームに戻ってください。",
 	[Key.backToHome]: "ホームに戻る",
+
+	[Key.immersiveReading]: "没入読書",
+	[Key.exitImmersiveReading]: "没入読書を終了",
+	[Key.tocTitle]: "目次",
+	[Key.tocExpand]: "目次を開く",
+	[Key.tocCollapse]: "目次を閉じる",
+	[Key.collapseSidebar]: "サイドバーを畳む",
+	[Key.sakanaMove]: "ドラッグで移動・ダブルクリックでリセット",
 };

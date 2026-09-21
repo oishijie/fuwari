@@ -50,4 +50,12 @@ export const ko: Translation = {
 	[Key.notFoundTitle]: "페이지를 찾을 수 없습니다",
 	[Key.notFoundDesc]: "링크가 끊어졌거나 주소가 잘못 입력되었을 수 있습니다. 검색하거나 홈으로 돌아가세요.",
 	[Key.backToHome]: "홈으로",
+
+	[Key.immersiveReading]: "몰입 독서",
+	[Key.exitImmersiveReading]: "몰입 독서 종료",
+	[Key.tocTitle]: "목차",
+	[Key.tocExpand]: "목차 펼치기",
+	[Key.tocCollapse]: "목차 접기",
+	[Key.collapseSidebar]: "사이드바 접기",
+	[Key.sakanaMove]: "드래그로 이동, 더블클릭으로 초기화",
 };

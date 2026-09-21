@@ -111,10 +111,15 @@ curl -s --noproxy '*' -o /dev/null -w "%{http_code}\n" \
 - **文章文件名即 URL**：`src/content/posts/<name>.md` → `/posts/<name>/`，而且 Astro 还会对文件名做 slugify（转小写、空格转 `-`、标点直接删掉）。**文件名一律用英文小写 + 连字符**（如 `sidebar-collapse`），中文标题只写在 frontmatter 的 `title`。
   - 改文件名 = 改 URL。历史外链靠 `public/_redirects` 的 301 兜底：**旧 URL 必须从 `dist/posts/` 里实际生成的目录取**（那就是线上跑过的路径），不能拿文件名原文反推——两者不一致（例：`Now 页启用：把发布门槛降到零.md` 的旧 URL 是 `/posts/now-页启用把发布门槛降到零/`）。
   - ⚠️ 评论以 `location.pathname` 为 key，**改 URL 会让历史评论与文章失联**，需同步迁移 D1 里 `comments.post_slug` 的旧值。
+- **`workers/` 下的三个 Worker 不由 Pages 管**，改动后必须各自单独 `wrangler deploy`：`blog-comments`（comments.142588.xyz）/ `blog-analytics`（webana.142588.xyz）/ `blog-bing-banner`（bing.142588.xyz）。探活端点：`/geo`、`/api/stats?hostname=blog.142588.xyz`、`/health`、`/meta`。
+- **线上验证用 node fetch**（本机 curl 打 CF 域名会被重置），并加 cache-buster 参数。⚠️ Astro 组件的 scoped `<style>` 会打包成**独立 CSS 文件**（不在 `Layout.*.css` 里，实测文章页共引用 10 个）——校验样式改动必须遍历页面引用的**全部** `/_astro/*.css`，只看第一个会把「已生效」误判成「没生效」。
 - 评论后端地址在 `commentConfig.apiBase`（当前 `https://comments.142588.xyz`），**留空时评论区不加载**（前端静默跳过请求）。改博客域名后，记得同步 Worker `wrangler.jsonc` 的 `ALLOWED_ORIGINS` 白名单。
 - 评论后端**必须绑自定义域名**：`*.workers.dev` 在中国大陆被 DNS 污染（实测解析到假 IP、HTTP 000），用它是不可用的。
 - `astro.config.mjs` 的 `site` 字段必须与真实域名一致，否则 RSS / Sitemap / OG 的绝对链接会出错。
-- 本仓库是 git 仓库（remote `oishijie/fuwari`）。**部署由 Cloudflare Pages 的 Git 集成自动完成**：push 到 `main` 后约 10s 被接收、约 80s 构建上线，无需本地构建。备用直传：`pnpm build && npx -y wrangler pages deploy dist --project-name=fuwari --branch=main`。
+- 本仓库是 git 仓库（remote `oishijie/fuwari`）。🔴 **CF Pages 的 Git 集成已失效**（2026-09-19 实测：部署记录最新停在 `c0727e8` = 9-18 15:10，其后的 `cedae0e`、`7ae9310` 两次 push 均未触发构建；原因是 GitHub 仓库的授权连接指向**另一个 CF 账号**）。push 后线上**不会**自动更新，现以**本地直传**为准：
+  `pnpm build && env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler pages deploy dist --project-name=fuwari --branch=main`
+  （build 约 2 分钟 / 61 页 / pagefind 索引 50 页 / 产物 22MB / 317 文件；上传约 1 分钟。`wrangler pages deploy` 同样必须 `env -u` 屏蔽环境变量。）
+  ⚠️ 构建占本机内存，**动手前必须先获用户同意**。
 
 ## 评论后端（workers/comments/）
 
@@ -246,9 +251,9 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 
 资源规格（不对齐会切帧错位）：雪碧图 `1536×1872`，`8×9` 网格，单格 `192×208`；行顺序 `idle / running-right / running-left / waving / jumping / failed / waiting / running / review`。`pet.json` 缺 `atlas` / `rows` 时 SDK 回退到这套默认值（`rich-paimon` 那种精简 pet.json 就走回退）。
 
-## 右下角石蒜挂件（Sakana! Widget）
+## 石蒜挂件（Sakana! Widget）
 
-右下角一只可拖拽的「立牌」角色（莉可丽丝的石蒜模拟器）：按住拖动、松手回弹，底座控制栏可切角色 / 自走模式 / 跳上游 / 关闭，Swup 切页不重载。
+默认停在**左下角**的一只可拖拽「立牌」角色（莉可丽丝的石蒜模拟器）：按住立牌拖动会物理回弹；底座控制栏四格依次是 **切角色 / 自走模式 / 拖动移动 / 关闭**（2026-09-20 把原来第 3 格的「跳上游 GitHub」原地改造成了拖动柄），Swup 切页不重载。
 
 | 项 | 值 |
 | :--- | :--- |
@@ -257,7 +262,8 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 | 许可 | 副本 + 角色图限制见 `public/lib/LICENSE-sakana-widget.txt` |
 | 配置 | `src/config.ts` 的 `sakanaConfig`（类型见 `src/types/config.ts` 的 `SakanaConfig`） |
 | 挂载 | `src/layouts/Layout.astro` —— body 内宿主 `#sakana-host` + 文件末尾的客户端脚本 |
-| 样式 | `src/styles/main.css` 的 `.sakana-host`；工具栏让位规则在 `src/components/control/BackToTop.astro` |
+| 停靠角 | `sakanaConfig.position`（默认 `bottom-left`）→ 宿主 `data-pos` → `main.css` 的四角规则；用户拖过的位置存 `localStorage['sakana-widget-pos']` |
+| 样式 | `src/styles/main.css` 的 `.sakana-host`（按 `[data-pos]` 定位）与 `.sakana-move-handle`；工具栏让位规则在 `src/components/control/BackToTop.astro` |
 | 预览 | `.workbuddy/preview/sakana-preview.html`（自包含；带「工具栏上抬/原位」「宽屏/窄屏边距」「切角色」「自走」，以及两个专治切页 bug 的按钮：「模拟 Swup 切页（有守卫）」和「对照组：无守卫」） |
 
 ⚠️ **许可提醒**：代码是 MIT，但**内置角色插画（chisato / takina）不可用于任何商业活动**——上游 README 明确声明，插画作者 大伏アオ @blue00f4。角色图以 base64 内联在 UMD 里。
@@ -273,21 +279,69 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 
 本站化改造（上游没做的）：
 
-- `z-index: 40`——SDK 不管宿主层级，由 `.sakana-host` 决定；与宠物同层，一左一右互不影响。
+- `z-index: 40`——SDK 不管宿主层级，由 `.sakana-host` 决定；与桌面宠物同层（宠物默认关停，两者若同时开会都在左下角）。
 - **宿主必须 `pointer-events: none`**——挂件自身的立牌/控制栏才是 `auto`。少了这条，卸载后留下的 fixed 空盒会挡住右下角一大片点击。
-- **让位悬浮工具栏**——挂件占掉右下角 200px，会与工具栏重叠。规则写在 `BackToTop.astro`，只在挂件真的出现时通过 `html[data-sakana="on"]` 生效，做法是**垂直上抬 `bottom: 15rem`**（240px ≈ 挂件高 200px + 底边距 + 间隙）。⚠️ **不要改成「水平避让」（`right: calc(1rem + 200px + 0.75rem)`）** —— 2026-09-19 试过，工具栏左移后会压到正文列，与挂件仍有视觉冲突，用户实测后要求改回上抬。
+- **默认停靠角 + 拖动移动**（2026-09-20）——宿主位置由 `data-pos` 驱动 CSS 四角规则（属性写在标签上，`mount()` 的 `cloneNode` 会连它一起继承，所以 SSR 第一帧就在正确位置，不会先闪一下左上角）；脚本里另有一行兜底断言，属性被上游改坏会被纠回。
+  **抓手就在控制栏第 3 格**：脚本把上游那个 `<a href="//github.com/dsrkafuu/sakana-widget">`（切角色 / 自走 / **它** / 关闭）原地改造成拖动柄 —— 去掉 `href/target/rel`、加 `role=button` + `tabindex`、换成四向箭头图标、补 `aria-label`/`title`（文案走宿主 `data-move-label`，编译期注入，脚本不引 i18n）。
+  🔴 **原地改造，不替换元素**：SDK 内部只给 `person / magic / close` 三格留了引用（`_domCtrlPerson/…`），这一格是「即插即忘」的，改它碰不到 SDK 自身行为；找不到 `<a>` 就安静退出（SDK 换结构时只损失拖动，不影响挂件）。
+  🔴 **定位只能在 `left/top` 与 `right/bottom` 里二选一**：切到 inline `left/top` 时必须同时把 `right/bottom` 置 `auto`，两套锚点并存会同时生效、位置全错。**双击复位** = 清空这四个 inline 值 + 删记忆，落回 `[data-pos]`。
+  位置以「整块留在视口内、四周留 8px」钳位（留边是为了拖动柄本身不被切在屏外）；`rememberPosition` 时存 `localStorage['sakana-widget-pos']`，视口 resize 用 rAF 节流再钳一次。⚠️ 这套逻辑只对**被拖过**的挂件生效（判据：宿主有没有 inline `left`），没拖过的交给 CSS，别去抢。
+  ⚠️ 双击是自己数的 320ms 内两次抬手，**没用 `dblclick`** —— `pointerdown` 里的 `preventDefault` 在部分浏览器会把后续 click 序列吃掉。
+- **让位悬浮工具栏（改成「真的重叠才上抬」）**——挂件默认在左下角，与右下角的工具栏天然不相交。`syncToolbarLift()` 拿挂件**实测矩形**与**工具栏「没上抬时」的基准矩形**（宽高实测；位置按 CSS 锚点反推：right `1.5rem`(≥1024px)/`1rem`、bottom `6rem`(≥768px)/`5rem`）求交，相交才置 `html[data-sakana="on"]`，CSS 上抬幅度仍是 `bottom: 15rem`（240px ≈ 挂件高 200px + 底边距 + 间隙），规则写在 `BackToTop.astro`。
+  🔴 **基准必须用「未上抬」的位置算**：若拿工具栏当前实测位置，会「上抬 → 不相交 → 撤掉 → 掉回原位 → 又相交」地来回抖。
+  ⚠️ **不要改成「水平避让」（`right: calc(1rem + 200px + 0.75rem)`）** —— 2026-09-19 试过，工具栏左移后会压到正文列，与挂件仍有视觉冲突，用户实测后要求改回上抬。
   ⚠️ 这条**必须写在组件里，不能写进 `main.css`**：`main.css` 的 `@layer components` 优先级低于 Astro 组件未分层的 `<style>`，写在那边会被覆盖。
+- **与欢迎浮层让位**（2026-09-20）——`WelcomeToast` 也蹲在左下角（`left:1rem; bottom:1rem`），与挂件默认角必然重叠。浮层 `show()/hide()` 往 `<html>` 写 `data-welcome="on"`，`main.css` 据此把挂件临时抬到 `bottom: calc(1rem + 6.5rem)`，浮层 6 秒后自动消失即落回。
+  ⚠️ 用**属性**而不是 CustomEvent：挂件脚本可能还没加载，属性天然表达「当前状态」而非「一次性事件」。⚠️ 只对没被拖过的挂件生效（拖过的用 inline `left/top`，`bottom: auto` 会自然压过这条规则，正好）。
 - **尺寸与手感是同一件事**——`size` 同时决定容器、人物图（`size/1.25`）与 canvas（`size×1.5`），**并且决定摇幅上限 `maxR = clamp(size/5, 30, 60)`**：200→40°、160→32°、120 被钳到 30°。所以「挂件调小 = 摇得拘谨发僵」，**不要按视口高度做矮屏降级**（曾经做过 120px 的降级，已移除）。参数全走 SDK 默认（`size: 200` + 默认物理 `i .08 / s .1 / d .988`），不要为手感加 `physics` 覆盖。
-- 点关闭 = 上游默认的 `unmount()`（彻底移除）。本站只加收尾：卸载后撤掉 `data-sakana`、清空 `window.sakanaWidget`，让工具栏放回原位；不干预 SDK 行为。
+- 点关闭（控制栏最后一格）= 上游默认的 `unmount()`（彻底移除）。本站只加收尾：卸载后撤掉 `data-sakana`、清空 `window.sakanaWidget`，让工具栏放回原位；不干预 SDK 行为。
 - `syncSakanaVisibility()` 先比对上次状态再调 `show()`/`hide()`——SDK 的 `show()` 在组件本就没隐藏时会 `console.warn`，而 mount 后与每次切页都会走到这里。
 - **静止自动停帧是 SDK 自带的**（`_run` 里运动量 < `threshold` 即 return），不像宠物那样需要额外的 `visibilitychange` 暂停。实测约 1180 帧后自行停止。
 - 深色模式：SDK 的控制栏是硬编码浅灰（`#ddd` / `#555`），预览页给了 `html.dark` 覆盖写法；**站点目前保留上游原样**，要改就照预览里那两行加进 `main.css`。
 
 换角色：改 `sakanaConfig.character` 为 `chisato`（千束，默认）或 `takina`（泷奈）。也可用 `SakanaWidget.registerCharacter()` 注册自己的图（URL 或 base64）——跨域图片必须开 CORS，否则 canvas 被标脏、立牌直接不显示。若要覆盖物理参数，必须走「同名覆盖内置角色」（`registerCharacter` 传同名字段）而非新建角色，否则底座切角色会循环出重复形象。
 
-## 文章页侧栏折叠（`MainGridLayout.astro`）
+## 阅读模式三档（`MainGridLayout.astro`）
 
-只有文章页传 `sidebarCollapsible={true}`，其余页面保持原双栏。状态统一写在 `<html data-sidebar="collapsed|expanded|off">`，由 `MainGridLayout` 顶部那段 `<script is:inline>` 在首屏绘制前同步写入；折叠开关 `#sidebar-toggle` 在 Swup 容器之外**无条件渲染**，显隐交给 CSS。偏好存 `sessionStorage['sidebar-expanded']`，移动端（<1024px）不参与。
+**折叠与沉浸是同一件事的两个深度**（2026-09-20 合并）：两者都收侧栏、都收窄正文，差别只在「收多深」。原先各有一套开关与状态源（`html[data-sidebar]` + `body.immersive-reading`），两套 CSS 要互相抢特异性，还留着「两个开关同时开着算哪一档」的未定义状态。现在收进**一个属性**：
+
+| 值 | 含义 | 收掉什么 | 正文量宽 |
+| :--- | :--- | :--- | :--- |
+| `off` | 本页不适用（首页 / 归档 / 关于…） | — | 展开态常态 |
+| `expanded` | 双栏，侧栏展开 | 什么都不收 | 卡内 800px |
+| `collapsed` | **文章页默认档** | 只收侧栏，导航 / banner 保留；正文两侧补**版心竖线** | `var(--read-width)` = 800px |
+| `immersive` | 最深一档（样式见下面 ImmersiveReading 一节） | 导航 / banner / 侧栏 / 页脚全隐 | `var(--immersive-width)` = 736px |
+
+- 状态由 `MainGridLayout` 顶部那段 `<script is:inline>` 在首屏绘制前同步写入。
+- 🔴 **入口只有一个**：工具栏那一枚 `#immersive-btn` 按 `expanded → collapsed → immersive → expanded` **循环**。也就是说，从默认的「折叠」点一下直接进沉浸，再点一下完整退出。按钮文案按「下一档会去哪」提示，三个 `data-label-*` 由 `BackToTop` 渲染时注入。
+- 🔴 **正文左缘的 `#sidebar-toggle` 已删除**（2026-09-20）：它的职责被工具栏按钮完全覆盖，留着就是两个入口做一件事。⚠️ 因此 `collapsible-sidebar` 那篇文章里「半透明小箭头」的描述已过时。
+- 偏好存 `sessionStorage['reading-mode']`（值即档位名）。**沉浸档不写入偏好** —— 它是临时态，回到文章页应回到默认档。
+- 沉浸档只在 ≥1024px 可达；窄屏时它从循环里消失（退化为 `collapsed ↔ expanded` 两档），已在沉浸时视口收窄会强制回落。移动端（<1024px）整体不参与。
+- 目录栏开合（`immersive-toc-open` / `immersive-toc-right`）是**子状态**，挂在 `<html>` 的 class 上，只在沉浸档有意义 —— 进入时默认展开，离开时清掉。
+
+**`collapsed` 档的版心竖线**（2026-09-20 加）
+
+折叠时卡片外缘仍是 1168px（保住「卡片与顶栏等宽」这条对齐线），正文缩在中间 800px，于是左右各 184px 纯白成了空档，文章看着「没东西框住」。解法是在留白里、离字面 `--guide-gap`（46px）处各补一条 1px 竖线，上下各渐隐 `--guide-fade`（64px）：
+
+```css
+:root { --guide-gap: 2.875rem; --guide-fade: 4rem; }   /* 全部调节旋钮就这两个 */
+
+html[data-sidebar="collapsed"] #post-container {
+    --reading-gutter: max(1.5rem, calc((100% - var(--read-width)) / 2));
+    padding-left:  var(--reading-gutter);
+    padding-right: var(--reading-gutter);
+}
+html[data-sidebar="collapsed"] #post-container::before { left:  calc(var(--reading-gutter) - var(--guide-gap)); }
+html[data-sidebar="collapsed"] #post-container::after  { right: calc(var(--reading-gutter) - var(--guide-gap)); }
+```
+
+- 🔴 留白抽成 `--reading-gutter`，竖线坐标**必须复用它**：两处各写一份表达式的话，改 `--read-width` 时留白与竖线就会错位。
+- 🔴 线只画在**留白里**，不进正文列：不碰任何内容的层叠，不会被代码块 / 引用块压住，也不用给内容加 `z-index`。
+- 颜色 `color-mix(in oklab, var(--primary), transparent 80%)`（20% 主题色）：比 `--line-divider` 的黑/白 8% 略实，浅色暗色都看得见，且跟着主题色走。想更淡改那个百分比。
+- 卡片自带 `overflow: hidden`，线用 `top/bottom: 0` 顶格 + 两端渐隐即可收干净，不用额外算高度。
+- 只在 `@media (min-width: 1024px)` 内。移动端是单列堆叠，不参与。
+
+另外考虑过但**没采用**的两种「框」：① 把卡片本身收窄到 872px 居中 —— 会丢掉「卡片与顶栏等宽」的对齐线；② 卡片不动、正文外套一层淡底 + 细边框 —— 会和已有的引用块 / 代码块叠成多层色块。对照预览留在 `.workbuddy/preview/collapsed-frame-preview.html`，可切 A / B / C 与明暗主题。
 
 🔴 **「本页可不可折叠」只能读运行时 DOM，不能用 Astro 编译期注入的值**（2026-09-19 修的 bug）
 
@@ -297,7 +351,7 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 - 首屏兜底：脚本同步执行于网格之前，`<main>` 还没解析出来，此时按 URL 路径（`/posts/` 前缀）判断；**只要 `#swup-container` 已经在 DOM 里，就以标记为准**，路径不再参与。
 - 同类教训：「在 Swup 容器外（切页不重跑）的脚本里，任何「当前页是什么」的判断都不能来自编译期注入」。
 
-**验证**：`node .workbuddy/tools/verify-sidebar-collapse.mjs`（17 项，DOM 桩真跑折叠脚本：首屏首页/文章页、首页→文章页、文章页→首页、文章页→文章页、会话偏好、路径兜底让位、noanim）。
+**验证**：`node .workbuddy/tools/verify-reading-mode.mjs`（**145 项**：单状态源不变量 / 入口收敛 / 三档循环 / 配置与 i18n / 布局对接 / 折叠档版心竖线 / 两档样式 + DOM 桩真跑状态机 —— 首屏与切页各路径、三档循环闭合、滚动位置记忆、Escape、目录开合、窄屏回落、`defaultOn`、沉浸不入偏好）。
 
 ## 侧栏挂件的展开 / 收起（`WidgetLayout.astro`）
 
@@ -311,7 +365,7 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 
 ## 悬浮工具栏（`BackToTop.astro`）
 
-右下角竖排 6 个按钮（回顶部 / 主页 / 随机 / 目录 / 评论 / 音乐），**统一为圆形**（`.toolbar-btn { border-radius: 50% }`，2026-09-19 由圆角方形改来 —— 进度环也随之从圆角矩形改成正圆）。**整体在 Swup 容器之外**，切页不重建。2026-09-19 按 [msqy.cc.cd](https://www.msqy.cc.cd/) 复刻，重做了目录与回顶部：
+右下角竖排 7 个按钮（回顶部 / 主页 / 随机 / 目录 / 评论 / **阅读模式** / 音乐），**统一为圆形**（`.toolbar-btn { border-radius: 50% }`，2026-09-19 由圆角方形改来 —— 进度环也随之从圆角矩形改成正圆）。其中**阅读模式那一枚是三档循环入口**（见「阅读模式三档」一节）。**整体在 Swup 容器之外**，切页不重建。2026-09-19 按 [msqy.cc.cd](https://www.msqy.cc.cd/) 复刻，重做了目录与回顶部：
 
 | 项 | 实现 |
 | :--- | :--- |
@@ -320,7 +374,7 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 | 高亮 | `#toc-popup-indicator` 背景条随滚动滑动（top/height 过渡），当前项文字与徽章转主题色 |
 | 进度环 | `#back-to-top-ring` 是**正圆**（`circle cx=24 cy=24 r=21`，viewBox 48×48；stroke 3 → 外沿 22.5，四周留 1.5px）。周长 `2πr`。⚠️ 按钮圆形化之前它是贴合圆角方形轮廓的 `rect 42×42 rx=9`（周长 `2(w+h) - 8r + 2πr`）—— 换形状只需改模板里那一个元素 + 脚本里的 `RING_RADIUS` 常量，`stroke-dasharray/dashoffset` 用法不变。`requestAnimationFrame` 节流，`scrollMax` 缓存避免每帧重排 |
 
-**位置**：`bottom: 5rem`（lg `6rem`）。石蒜挂件开着时**垂直上抬到 `bottom: 15rem`**（见上面石蒜那节）。
+**位置**：`bottom: 5rem`（lg `6rem`）。与石蒜挂件**真的重叠**时上抬到 `bottom: 15rem`（挂件默认在左下角，所以平时不上抬，见上面石蒜那节）。
 
 🔴 **两个坑**
 
@@ -328,6 +382,39 @@ env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler deploy
 2. **改这个文件禁止用 `rfind` 定位 `})();`** —— 单个 `<script is:raw is:inline>` 里**有两个 IIFE**（工具栏、音乐播放器），`rfind` 会命中后者，切片替换会把**整个音乐播放器 JS 一起删掉**。2026-09-19 已踩过一次：恢复源是 `.workbuddy/preview/music-player-preview.html` 的第 2 个 `<script>` 块（那正是当初从组件整段提取的音乐 JS）。
 
 **验证**：`node .workbuddy/tools/verify-toolbar.mjs`（**67 项**，不启 dev —— 抽 IIFE + DOM 桩在 `new Function` 里真跑，覆盖进度环百分比、弹窗开关、层级映射、XSS 转义、Escape／点外关闭、位置规则）。
+
+## 沉浸档（三档中最深的一档 · `ImmersiveReading.astro`）
+
+它**不再是独立功能**，而是上面那条三档光谱的最深处（2026-09-20 合并）：把导航 / banner / 侧栏 / 页脚全部隐去，正文限宽居中，目录升级为常驻侧栏。复刻自 [blog.cuteleaf.cn](https://blog.cuteleaf.cn/) 的 `ImmersiveReading.astro`（同源 Astro 站，客户端脚本压缩后仅 4.5 KB）。
+
+**配置**：`immersiveReadingConfig`（`enable` / `defaultOn` / `tocEnabled` / `tocPosition: "left" | "right"` / `readingWidth`）。默认 `defaultOn: false` —— 不主动打扰访客。
+
+**机制**：全部落在 `html[data-sidebar="immersive"]` 上（**不再有 `body.immersive-reading`**），没有布局重算。本组件只负责三件事：沉浸档样式、目录栏 DOM、配置注入；**档位状态机在 `MainGridLayout`**。
+
+| 选择器 | 作用 |
+| :--- | :--- |
+| `html[data-sidebar="immersive"]` | 隐去 `#top-row`（一并带走导航与 banner）/ `#sidebar` / `.footer` / `#banner-credit`；把 `#main-panel` 的内联 `top`（= banner 高度）`!important` 归零；`#main-grid` 改 flex 单列；`#post-container` 限宽 `var(--read-width)`（该属性在本档被 `--immersive-width` 覆盖）居中 |
+| 同上 `.immersive-toc-open` | 目录栏推入视口，并给 `#main-grid` 让出 `padding-left: calc(var(--immersive-toc-width) + 1rem)` |
+| 同上 `.immersive-toc-right` | 目录栏改停右侧（`tocPosition: "right"`） |
+
+🔴 **量宽只有一条链**：折叠档与沉浸档都读同一个 `--read-width`（`:root` 里 50rem），沉浸档只是把它覆盖成 `--immersive-width`（默认 46rem，脚本按配置注入）。想调宽窄改一个数字即可，不会出现「改了一处忘了另一处」。
+
+🔴 **目录栏不另起炉灶，直接接管现有的 `#toc-wrapper`**：目录数据、滚动高亮、点击跳转全部沿用 `TOC.astro` 里的 `<table-of-contents>` 自定义元素，省掉第二份 TOCManager；而且 `#toc` 本来就在 Swup 的替换列表里（`["main", "#toc"]`），**切页会自动重建目录**。为此：
+
+- `#toc-wrapper` 的原父级（原本带 `hidden 2xl:block`）加了 `id="toc-outer"`，沉浸态 `display: block !important` 放行，并抬 `z-index: 45`（**不抬会被 `z-30` 的主面板盖住**）；
+- `#toc-inner-wrapper` 从 `fixed top-14` 改成撑满侧栏的 flex 子项 —— 它仍是目录的滚动容器，`TableOfContents.init()` 里那句 `getElementById("toc-inner-wrapper")` 不受影响。⚠️ **必须保持 `position: relative`，不能退成 `static`**：目录里的 `#active-indicator` 是 `absolute`、按它的 `rect.top` 定位，失去定位基准会整块上偏一个标题条高度；
+- 目录栏标题条 `#immersive-toc-header`（含收起按钮 `#immersive-toc-close`）放在 `#toc-wrapper` 内、`#toc-inner-wrapper` 外 —— 它不属于 Swup 的替换目标，切页不重建，事件只绑一次。
+
+**必须记住的点**
+
+1. **组件必须在 Swup 容器之外**（和 `BackToTop` 一样），否则切页丢实例。沉浸的档位判断同理**不能有编译期注入的「当前页」常量**（见上面那条铁律）。
+2. **量宽变量用 JS 写 `:root`，不要用 `define:vars`** —— 后者会注入 `<style>`，而 Swup 的 head-plugin 会清掉「新页面没有」的节点。
+3. **滚动位置由状态机记**：进沉浸归零，出沉浸回到进入前的位置，不是甩回顶部；`Escape` 可退出；视口收窄到 <1024px、或切到非文章页会**自动回落**（沉浸只在桌面端开放）。
+4. **退出入口就是工具栏那一枚按钮**（它循环到下一档）；原先左上角的退出浮钮已随合并删除，`#immersive-toc-btn` 只负责目录开合。
+
+**验证**：并入 `verify-reading-mode.mjs`（145 项，见「阅读模式三档」一节的说明）。
+
+**预览**：`.workbuddy/preview/immersive-preview.html` —— 复刻真实骨架 ID 的可交互页面：点按钮循环三档、切目录、切亮暗，顶部实时显示 `data-sidebar` 的值与当前档位。
 
 ## 切页滚动（Swup scroll-plugin）
 
@@ -407,7 +494,7 @@ if (typeof animateScroll === 'boolean') {
 | 数据 | 评论 Worker 的 `GET /geo`：`source` / `locationText` / `province` / `city` / `district` / `lat` / `lon` / `cf` |
 | 定位 | `fixed` 左下角 `1rem`，`z-index: 45`（低于悬浮工具栏 50 / 目录抽屉 60）；<640px 转底部居中 |
 
-**为什么不是右下角**：右下角被悬浮工具栏（50）与石蒜挂件占着，放那儿必然打架。⚠️ 桌面宠物若改回 `petConfig.enable = true`，它的宿主也在左下角，浮层弹出时会短暂与宠物重叠。
+**为什么不是右下角**：右下角被悬浮工具栏（50）占着，放那儿必然打架。⚠️ 左下角现在归石蒜挂件（默认 `bottom-left`），浮层弹出时会短暂压住它 —— 靠 `<html data-welcome="on">` 让挂件临时上抬（见石蒜那节）。⚠️ 桌面宠物若改回 `petConfig.enable = true`，它的宿主也在左下角，同样会短暂重叠。
 
 ### /geo 的两级数据源（2026-09-19 改造）
 
@@ -570,9 +657,9 @@ CODEBUDDY_SAFE_DELETE_ENABLED=0 ./node_modules/.bin/astro dev --host 127.0.0.1
 - [ ] 若动了宠物：`node .workbuddy/tools/verify-pet-sdk.mjs`（DOM 桩实跑 SDK：参数解析 / 定位数值 / 状态机），并重生成 `.workbuddy/preview/pet-preview.html`
 - [ ] 若动了归档页：`node .workbuddy/tools/verify-archive-ssr.mjs`（`ArchivePanel` 必须仍能服务端渲染出年份与文章列表；`ArchiveHeatmap` 保持 `client:only`）
 - [ ] 若动了音乐播放器：`node .workbuddy/tools/verify-music-player.mjs`（61 项：配置注入 / 预热 / 歌单装载 / 面板定位 / 播控 / 列表 / XSS 转义 / 单例 / 补播 / 失败降级 / local 模式），并重生成 `.workbuddy/preview/music-player-preview.html`
-- [ ] 若动了石蒜挂件：`node .workbuddy/tools/verify-sakana-sdk.mjs`（DOM 桩实跑 SDK：尺寸链 / `maxR` 摇幅 / 控制栏 / 停帧 / 卸载）与 `node .workbuddy/tools/verify-sakana-mount.mjs`（抽取 Layout 脚本，验证单例守卫、`data-sakana` 开关、窄屏与减少动效分支、**head-plugin 清理守卫**），并重生成 `.workbuddy/preview/sakana-preview.html`
+- [ ] 若动了石蒜挂件：`node .workbuddy/tools/verify-sakana-sdk.mjs`（DOM 桩实跑 SDK：尺寸链 / `maxR` 摇幅 / 控制栏 / 停帧 / 卸载）与 `node .workbuddy/tools/verify-sakana-mount.mjs`（**60 项**：抽取 Layout 脚本真跑，覆盖单例守卫、**head-plugin 清理守卫**、窄屏与减少动效分支、停靠角 `data-pos`、控制栏第 3 格改造成的拖动柄、位置记忆 / 钳位 / 双击复位、**相交才上抬**的工具栏开关）
 - [ ] 若动了欢迎浮层或 Worker `/geo`：`node .workbuddy/tools/verify-geo-route.mjs`（27 项：esbuild 打包后真跑 `/geo` 路由 —— 区级补正 / 备源降级 / 全挂退回边缘 / 境外 IP 门控 / 越界坐标丢弃）与 `node .workbuddy/tools/verify-welcome-toast.mjs`（46 项：源码结构 / 区级数据 / 降级映射 / 境外与港澳台 / IP 开关 / 缓存 / 失败降级 / 三种 mode / 事件去重 / 关闭与自动关闭），并重生成 `.workbuddy/preview/welcome-toast-preview.html`
-- [ ] 若动了侧栏折叠或挂件展开/收起：`node .workbuddy/tools/verify-sidebar-collapse.mjs`（17 项：DOM 桩实跑折叠脚本，跨首屏与 swup 切页两条路径）与 `node .workbuddy/tools/verify-widget-toggle.mjs`（28 项：「更多/收起」交替与 aria 状态），并重生成 `.workbuddy/preview/sidebar-fixes.html`
+- [ ] 若动了阅读模式（折叠 / 沉浸任一档）或挂件展开收起：`node .workbuddy/tools/verify-reading-mode.mjs`（**145 项**：单状态源 / 入口收敛 / 三档循环 / 配置与 i18n / 布局对接 / 折叠档版心竖线 / 两档样式 + DOM 桩真跑状态机）与 `node .workbuddy/tools/verify-widget-toggle.mjs`（28 项：「更多/收起」交替与 aria 状态），并重生成 `.workbuddy/preview/immersive-preview.html`、`.workbuddy/preview/sidebar-fixes.html`、`.workbuddy/preview/collapsed-frame-preview.html`
 - [ ] 若动了悬浮工具栏：`node .workbuddy/tools/verify-toolbar.mjs`（67 项：进度环 / 目录弹窗 / 层级 / 位置规则 / 圆形化 / 面板暗色 / XSS），并重生成 `.workbuddy/preview/toolbar-preview.html`
 - [ ] 若动了赞赏页：`node .workbuddy/tools/verify-sponsor-dark.mjs`（24 项：暗色变量覆盖 + 亮度差 + 预览脚本同步），并重生成 `.workbuddy/preview/sponsor-page.html`
 - [ ] 若动了 Swup 配置或切页行为（滚动、动画、过渡）：`node .workbuddy/tools/verify-swup-scroll.mjs`（22 项：跨页滚动动画已关 + 其余档位保留 + tsc 严格模式）

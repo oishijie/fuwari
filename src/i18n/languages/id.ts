@@ -50,4 +50,12 @@ export const id: Translation = {
 	[Key.notFoundTitle]: "Halaman tidak ditemukan",
 	[Key.notFoundDesc]: "Tautan mungkin rusak atau alamat salah ketik. Coba cari, atau kembali ke beranda.",
 	[Key.backToHome]: "Kembali ke beranda",
+
+	[Key.immersiveReading]: "Mode baca imersif",
+	[Key.exitImmersiveReading]: "Keluar dari mode baca imersif",
+	[Key.tocTitle]: "Di halaman ini",
+	[Key.tocExpand]: "Buka daftar isi",
+	[Key.tocCollapse]: "Tutup daftar isi",
+	[Key.collapseSidebar]: "Ciutkan bilah sisi",
+	[Key.sakanaMove]: "Seret untuk memindahkan · klik dua kali untuk mengatur ulang",
 };

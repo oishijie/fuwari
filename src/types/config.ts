@@ -150,7 +150,8 @@ export type AISummaryConfig = {
 	enable: boolean; // 是否启用文首的 AI 摘要卡片
 	apiBase: string; // 摘要服务地址（与评论同一个 Worker），末尾不带斜杠
 };
-export type PetPosition =
+/** 站点浮层的停靠角（桌面宠物与「石蒜模拟器」挂件共用） */
+export type FloatingCorner =
 	| "bottom-left"
 	| "bottom-right"
 	| "top-left"
@@ -168,7 +169,7 @@ export type PetConfig = {
 	/** 毫秒/帧 */
 	speed: number;
 	/** 停在屏幕哪个角落 */
-	position: PetPosition;
+	position: FloatingCorner;
 	/** 角落边距（px） */
 	margin: number;
 	/** 初始动画状态，如 idle */
@@ -189,6 +190,15 @@ export type SakanaConfig = {
 	enable: boolean;
 	/** 内置角色：chisato（千束）/ takina（泷奈） */
 	character: string;
+	/** 默认停靠角。用户拖过之后以本地记忆为准（见 movable / rememberPosition） */
+	position: FloatingCorner;
+	/** 左上角拖动柄：按住可把整个挂件挪到视口任意位置。
+	 *  🔴 与上面的 draggable 是两回事 —— draggable 是 SDK 自带的「按住立牌甩」
+	 *  （物理摇摆，松开回弹），movable 挪的是挂件在视口里的停靠位置。 */
+	movable: boolean;
+	/** 拖过的位置写进 localStorage（键 sakana-widget-pos），刷新与切页都保持；
+	 *  想回默认角，双击拖动柄即可（会一并清掉记忆）。 */
+	rememberPosition: boolean;
 	/** 容器与组件边长（px），默认 200。
 	 *  摇摆幅度上限 maxR = clamp(size/5, 30, 60)（160→32°、200→40°），
 	 *  所以调小 size 会连带让摇摆变拘谨；autoFit 会用容器实测尺寸覆盖它，下限 120 */
@@ -267,4 +277,19 @@ export type WelcomeConfig = {
 	homeLon: number;
 	/** 是否在浮层里显示访客 IP（默认高斯模糊，悬停或聚焦才看得清） */
 	showIp: boolean;
+};
+
+/** 沉浸阅读：清掉导航 / 侧栏 / 页脚，正文限宽居中，目录升级为常驻侧栏。
+ *  与「侧栏折叠」互不干扰——沉浸只隐藏，不改动 html[data-sidebar] 的折叠状态。 */
+export type ImmersiveReadingConfig = {
+	/** 是否启用（工具栏按钮 + 沉浸态样式） */
+	enable: boolean;
+	/** 进入文章页时是否自动开启（默认 false，别吓到访客） */
+	defaultOn: boolean;
+	/** 沉浸态是否提供常驻目录栏 */
+	tocEnabled: boolean;
+	/** 目录栏停靠侧 */
+	tocPosition: "left" | "right";
+	/** 正文量宽（CSS 长度）。默认 46rem，比常规阅读列的 50rem 略窄、行更聚焦 */
+	readingWidth: string;
 };

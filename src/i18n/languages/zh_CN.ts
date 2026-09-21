@@ -50,4 +50,12 @@ export const zh_CN: Translation = {
 	[Key.notFoundTitle]: "页面不存在",
 	[Key.notFoundDesc]: "链接可能已失效，或者地址输错了。试试站内搜索，或者回首页重新找找。",
 	[Key.backToHome]: "回到首页",
+
+	[Key.immersiveReading]: "沉浸阅读",
+	[Key.exitImmersiveReading]: "退出沉浸阅读",
+	[Key.tocTitle]: "文章目录",
+	[Key.tocExpand]: "展开目录",
+	[Key.tocCollapse]: "收起目录",
+	[Key.collapseSidebar]: "收起侧栏",
+	[Key.sakanaMove]: "拖动移动，双击复位",
 };

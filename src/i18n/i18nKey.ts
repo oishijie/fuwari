@@ -30,6 +30,13 @@ enum I18nKey {
 	more = "more",
 	less = "less",
 
+	// 沉浸阅读（清场模式：隐藏导航 / 侧栏 / 页脚，正文限宽居中）
+	immersiveReading = "immersiveReading",
+	exitImmersiveReading = "exitImmersiveReading",
+	tocTitle = "tocTitle",
+	tocExpand = "tocExpand",
+	tocCollapse = "tocCollapse",
+
 	author = "author",
 	publishedAt = "publishedAt",
 	license = "license",
@@ -47,6 +54,12 @@ enum I18nKey {
 	notFoundTitle = "notFoundTitle",
 	notFoundDesc = "notFoundDesc",
 	backToHome = "backToHome",
+
+	// 阅读模式（三档：展开 / 折叠 / 沉浸）
+	collapseSidebar = "collapseSidebar",
+
+	// 「石蒜模拟器」挂件
+	sakanaMove = "sakanaMove",
 }
 
 export default I18nKey;

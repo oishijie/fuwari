@@ -2,6 +2,8 @@
 import { getCollection } from "astro:content";
 import { Icon } from "astro-icon/components";
 import { musicConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
 import { getPostUrlBySlug, url } from "../../utils/url-utils";
 
 // SSR 时确定初始可见性（避免首屏闪烁），导航后由 JS 动态更新
@@ -50,6 +52,23 @@ const music = musicConfig.enable ? musicConfig : null;
         {/* 跳转评论区按钮：仅文章页显示，且评论已启用时才有意义 */}
         <div id="goto-comment-btn" class="toolbar-btn" style={isPostsRoute ? "" : "display:none"} onclick="toolbarGotoComment()" role="button" aria-label="跳转评论区" tabindex="0" title="跳转评论区">
             <Icon name="material-symbols:comment-rounded" class="toolbar-icon"></Icon>
+        </div>
+
+        {/* 阅读模式入口：**折叠与沉浸已合并成一条三档光谱**，这一枚按钮循环切换
+            「展开侧栏 → 折叠侧栏 → 沉浸 → 展开侧栏 …」（状态机在 MainGridLayout.astro）。
+            隐显与文案一律由那个状态机在**运行时**按 URL 与视口宽度控制 ——
+            本段位于 Swup 容器之外，编译期常量会被固化在首屏那份 HTML 上（踩过坑，见项目铁律）。
+            初始 display 仍用 isPostsRoute 兜底，避免首页首帧闪出一个死按钮。
+            三个 data-label-* 是「点下去会到哪一档」的提示文案，由状态机按当前档位取用。 */}
+        <div id="immersive-btn" class="toolbar-btn"
+             style={isPostsRoute ? "" : "display:none"}
+             role="button" tabindex="0" aria-pressed="false"
+             aria-label={i18n(I18nKey.immersiveReading)}
+             title={i18n(I18nKey.immersiveReading)}
+             data-label-expanded={i18n(I18nKey.collapseSidebar)}
+             data-label-collapsed={i18n(I18nKey.immersiveReading)}
+             data-label-immersive={i18n(I18nKey.exitImmersiveReading)}>
+            <Icon name="material-symbols:chrome-reader-mode-rounded" class="toolbar-icon"></Icon>
         </div>
 
         {/* 音乐播放器入口（复刻自 v-blog.halei0v0.top 的悬浮工具栏音乐）。
@@ -258,6 +277,12 @@ const music = musicConfig.enable ? musicConfig : null;
     html[data-sakana="on"] .floating-toolbar-wrapper {
         bottom: 15rem;
     }
+}
+
+/* 处于最深的沉浸档时入口按钮高亮，提示「再点一次即回到展开态」 */
+#immersive-btn.is-open {
+    background: var(--btn-plain-bg-hover);
+    box-shadow: 0 0 0 1px var(--primary) inset;
 }
 
 /* ===== 音乐播放器：入口按钮 ===== */

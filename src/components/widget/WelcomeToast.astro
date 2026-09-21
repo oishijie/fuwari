@@ -297,11 +297,24 @@ const payload = JSON.stringify({ ...cfg, apiBase: commentConfig.apiBase });
         }
     }
 
+    /* 浮层与「石蒜挂件」的默认角（左下）重叠：把显隐广播到 <html>，
+       main.css 里据此把挂件临时抬到浮层上方，浮层一走就落回。
+       用属性而不是 CustomEvent —— 挂件脚本可能还没起来，属性天然是「当前状态」而非「一次性事件」。 */
+    function broadcast(on) {
+        try {
+            if (on) document.documentElement.setAttribute('data-welcome', 'on');
+            else document.documentElement.removeAttribute('data-welcome');
+        } catch (e) {
+            /* 极端环境下 documentElement 不可写，忽略即可，只影响让位效果 */
+        }
+    }
+
     function hide() {
         if (timer) {
             clearTimeout(timer);
             timer = null;
         }
+        broadcast(false);
         root.classList.remove('is-in');
         setTimeout(function () {
             if (!root.classList.contains('is-in')) root.hidden = true;
@@ -310,6 +323,7 @@ const payload = JSON.stringify({ ...cfg, apiBase: commentConfig.apiBase });
 
     function show() {
         root.hidden = false;
+        broadcast(true);
         void root.offsetWidth;   // 强制回流，保证从 hidden 恢复后过渡能跑起来
         root.classList.add('is-in');
 

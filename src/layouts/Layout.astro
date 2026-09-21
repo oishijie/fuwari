@@ -7,6 +7,8 @@ import ConfigCarrier from "@components/ConfigCarrier.astro";
 import Webviso from "@components/Webviso.astro";
 import WelcomeToast from "@components/widget/WelcomeToast.astro";
 import { petConfig, profileConfig, sakanaConfig, siteConfig, umamiConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
 import {
 	AUTO_MODE,
 	BANNER_HEIGHT,
@@ -184,10 +186,20 @@ const bannerOffset =
 		     否则每次切页都会被整块替换，动画与拖拽位置全部丢失 -->
 		{petConfig.enable && <div id="site-pet-host" aria-hidden="true"></div>}
 
-		<!-- 右下角石蒜挂件宿主：同样必须落在 Swup 容器（main / #toc）之外，
+		<!-- 石蒜挂件宿主：同样必须落在 Swup 容器（main / #toc）之外，
 		     否则每次切页都会被整块替换，实例与拖拽状态全部丢失。
-		     宽高由客户端脚本按 sakanaConfig 注入（SDK 的 autoFit 需要确定尺寸的 BFC） -->
-		{sakanaConfig.enable && <div id="sakana-host" class="sakana-host"></div>}
+		     宽高由客户端脚本按 sakanaConfig 注入（SDK 的 autoFit 需要确定尺寸的 BFC）；
+		     停靠角走 data-pos（CSS 按它定位，SSR 出来的第一帧就在正确位置），
+		     data-move-label 是左上角拖动柄的文案，编译期注入，脚本不必再引 i18n。
+		     ⚠️ SDK mount 时 cloneNode 会连属性一起继承，所以这三个属性不会丢。 -->
+		{sakanaConfig.enable && (
+			<div
+				id="sakana-host"
+				class="sakana-host"
+				data-pos={sakanaConfig.position}
+				data-move-label={i18n(I18nKey.sakanaMove)}
+			></div>
+		)}
 
 		<!-- 右下角→左下角欢迎浮层宿主：同样必须在 Swup 容器之外，切页才不会被整块替换。
 		     固定定位 + 站点级单例，展示时机由 welcomeConfig.mode 控制 -->
@@ -836,6 +848,8 @@ document.addEventListener("password:decrypted", () => {
 		host.style.width = `${px}px`;
 		host.style.height = `${px}px`;
 		host.style.zIndex = String(sk.zIndex);
+		// 停靠角：SSR 已写在标签上（mount 的 cloneNode 会连属性一起继承），这里只是兜底
+		if (host.dataset.pos !== sk.position) host.dataset.pos = sk.position;
 		// autoFit 用 ResizeObserver 观察内部 100% 宽的 wrapper，
 		// 改完宿主尺寸 SDK 会自动重算 size，不必重新 mount
 	}
@@ -853,14 +867,201 @@ document.addEventListener("password:decrypted", () => {
 		else w.show();
 	}
 
-	/* 只有挂件真的会出现时才上抬悬浮工具栏（CSS 认 html[data-sakana="on"]） */
+	/* 工具栏「没被上抬时」本该待的位置。宽度/高度取实测（上抬只改 bottom，不改尺寸），
+	   位置按 CSS 里的锚点反推：right 1.5rem(≥1024px) / 1rem，bottom 6rem(≥768px) / 5rem。 */
+	function toolbarBaseRect() {
+		const tb = document.querySelector(".floating-toolbar-wrapper") as HTMLElement | null;
+		if (!tb) return null;
+		const w = tb.offsetWidth || 48;
+		const h = tb.offsetHeight || 0;
+		const off = window.innerWidth >= 1024 ? 24 : 16;
+		const bottom = window.innerWidth >= 768 ? 96 : 80;
+		return {
+			left: window.innerWidth - off - w,
+			right: window.innerWidth - off,
+			top: window.innerHeight - bottom - h,
+			bottom: window.innerHeight - bottom,
+		};
+	}
+
+	/* 只有挂件真的和悬浮工具栏抢同一块地方时才上抬工具栏（CSS 认 html[data-sakana="on"]）。
+	   🔴 判定必须拿「工具栏没上抬时的基准位置」去算：若用它的当前实测位置，上抬后就不相交
+	   → 撤掉 → 掉回原位 → 又相交，会一直来回抖。
+	   挂件默认停在左下角，两者天然不相交，所以工具栏平时就在右下角原位。 */
 	function syncToolbarLift() {
 		const shown = !!(window as any).sakanaWidget && !(sk.hideOnMobile && narrowMq.matches);
+		let lift = false;
 		if (sk.enable && sk.liftToolbar && shown) {
-			document.documentElement.setAttribute("data-sakana", "on");
-		} else {
-			document.documentElement.removeAttribute("data-sakana");
+			const r = getHost()?.getBoundingClientRect();
+			const b = toolbarBaseRect();
+			lift = !!(r && b && r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top);
 		}
+		if (lift) document.documentElement.setAttribute("data-sakana", "on");
+		else document.documentElement.removeAttribute("data-sakana");
+	}
+
+	/* ===== 拖动移动：把整个挂件挪到视口任意位置，双击复位回 data-pos 那个默认角 =====
+	🔴 与 SDK 自带的「按住立牌甩」互不干扰，因为抓手不同：SDK 把 mousedown/touchstart 绑在
+	立牌图片上，而宿主里除立牌与控制栏外全是 pointer-events:none —— 想「按住空白处拖走」
+	根本点不到，所以抓手只能落在控制栏上（也就是下面被改造的第 3 格）。 */
+	const POS_KEY = "sakana-widget-pos";
+	const POS_EDGE = 8; // 钳位时给拖动柄留的视口边距，免得贴边后柄被切在屏幕外
+
+	function readSavedPos(): { x: number; y: number } | null {
+		try {
+			const o = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+			if (o && isFinite(o.x) && isFinite(o.y)) return { x: Number(o.x), y: Number(o.y) };
+		} catch {
+			/* 隐私模式读不到 / 存的是脏数据，一律当「没存过」 */
+		}
+		return null;
+	}
+
+	/* 拖出视口的一律拉回来：整个挂件留在视口内，四周各留 POS_EDGE */
+	function clampPos(x: number, y: number) {
+		const host = getHost();
+		const w = (host && host.offsetWidth) || sk.size;
+		const h = (host && host.offsetHeight) || sk.size;
+		const maxX = Math.max(POS_EDGE, window.innerWidth - w - POS_EDGE);
+		const maxY = Math.max(POS_EDGE, window.innerHeight - h - POS_EDGE);
+		return { x: Math.min(Math.max(x, POS_EDGE), maxX), y: Math.min(Math.max(y, POS_EDGE), maxY) };
+	}
+
+	/* 从「CSS 四角定位」切到「inline left/top 定位」。
+	🔴 必须同时把 right/bottom 置成 auto：两套锚点并存会同时生效，位置会错。
+	复位（unpinHost）就是把这四个 inline 值清空，让它落回 [data-pos] 的规则。 */
+	function pinHost(x: number, y: number) {
+		const host = getHost();
+		if (!host) return;
+		const p = clampPos(x, y);
+		host.style.left = `${p.x}px`;
+		host.style.top = `${p.y}px`;
+		host.style.right = "auto";
+		host.style.bottom = "auto";
+	}
+
+	function unpinHost() {
+		const host = getHost();
+		if (!host) return;
+		host.style.left = "";
+		host.style.top = "";
+		host.style.right = "";
+		host.style.bottom = "";
+	}
+
+	/* 复位：清掉记忆 + 落回配置里的默认角 */
+	function resetPos() {
+		try {
+			localStorage.removeItem(POS_KEY);
+		} catch {
+			/* 清不掉也无妨，视觉结果一样 */
+		}
+		unpinHost();
+		syncToolbarLift();
+	}
+
+	/* 进站 / 切页时恢复用户拖过的位置；没拖过就落回默认角 */
+	function applySavedPos() {
+		const saved = sk.rememberPosition ? readSavedPos() : null;
+		if (saved) pinHost(saved.x, saved.y);
+		else unpinHost();
+		syncToolbarLift();
+	}
+
+	/* 底座控制栏第 3 格：上游原本是「GitHub 仓库」链接，本站把它改造成拖动柄 ——
+	   按住这一格把整个挂件挪到视口任意位置，双击复位回默认角。
+	   🔴 原地改造、不换元素：SDK 内部只给 person / magic / close 三项留了引用，
+	   这一格是「即插即忘」的，所以改它的 href、title 与图标不会碰到 SDK 自身行为。 */
+	function setupRepoDragButton(host: HTMLElement) {
+		if (host.querySelector(".sakana-move-handle")) return; // 幂等：重挂 / 切页都不会二次改造
+		const ctrl = host.querySelector(".sakana-widget-ctrl");
+		if (!ctrl) return;
+		// ctrl 子项顺序：切角色 / 自走 / GitHub 链接 / 关闭 —— 取那个 <a>
+		const repo = Array.from(ctrl.children).find((el) => el.tagName === "A") as HTMLElement | undefined;
+		if (!repo) return; // SDK 结构变了就安静退出：只损失拖动，不影响挂件本身
+		repo.removeAttribute("href");
+		repo.removeAttribute("target");
+		repo.removeAttribute("rel");
+		repo.classList.add("sakana-move-handle");
+		repo.setAttribute("role", "button");
+		repo.setAttribute("tabindex", "0");
+		const label = host.dataset.moveLabel || "拖动移动，双击复位";
+		repo.setAttribute("aria-label", label);
+		repo.title = label;
+		repo.innerHTML =
+			'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+			'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+			'<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l-3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>' +
+			"</svg>";
+
+		interface MoveDrag {
+			dx: number;
+			dy: number;
+			x: number;
+			y: number;
+			moved: boolean;
+		}
+		let drag: MoveDrag | null = null;
+		let lastTap = 0;
+
+		repo.addEventListener("pointerdown", (e) => {
+			if (e.button != null && e.button !== 0) return;
+			const el = getHost();
+			if (!el) return;
+			const r = el.getBoundingClientRect();
+			drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, x: r.left, y: r.top, moved: false };
+			el.classList.add("is-moving");
+			try {
+				repo.setPointerCapture(e.pointerId);
+			} catch {
+				/* 没有 pointer capture 也能拖，只是指针移出按钮后事件会断 */
+			}
+			e.preventDefault();
+		});
+
+		repo.addEventListener("pointermove", (e) => {
+			if (!drag) return;
+			const p = clampPos(e.clientX - drag.dx, e.clientY - drag.dy);
+			pinHost(p.x, p.y);
+			drag.x = p.x;
+			drag.y = p.y;
+			drag.moved = true;
+		});
+
+		const finish = (e: PointerEvent) => {
+			if (!drag) return;
+			const moved = drag.moved;
+			const x = drag.x;
+			const y = drag.y;
+			drag = null;
+			const el = getHost();
+			if (el) el.classList.remove("is-moving");
+			try {
+				repo.releasePointerCapture(e.pointerId);
+			} catch {
+				/* 同 pointerdown */
+			}
+			/* 双击复位：自己数 320ms 内的第二次抬手，不用 dblclick ——
+			   pointerdown 里的 preventDefault 在部分浏览器会把后续 click 序列吃掉 */
+			const now = Date.now();
+			if (!moved && now - lastTap < 320) {
+				lastTap = 0;
+				resetPos();
+				return;
+			}
+			lastTap = moved ? 0 : now;
+			if (!moved) return;
+			if (sk.rememberPosition) {
+				try {
+					localStorage.setItem(POS_KEY, JSON.stringify({ x, y }));
+				} catch {
+					/* 存不进去就本次生效，不影响拖动本身 */
+				}
+			}
+			syncToolbarLift(); // 拖到右下角的话，工具栏得重新决定抬不抬
+		};
+		repo.addEventListener("pointerup", finish);
+		repo.addEventListener("pointercancel", finish);
 	}
 
 	function mountSakana() {
@@ -892,9 +1093,12 @@ document.addEventListener("password:decrypted", () => {
 
 			(window as any).sakanaWidget = widget;
 			syncSakanaVisibility();
-			syncToolbarLift();
 			patchCloseButton(widget);
 			captureSdkStyle(); // 给 SDK 注入的 <style> 打免删标记，见上方注释
+			applySavedPos(); // 恢复用户拖过的位置（没拖过就落回 data-pos 的默认角）
+			const mounted = getHost(); // mount 会换掉宿主，必须重新取
+			if (mounted && sk.movable) setupRepoDragButton(mounted);
+			syncToolbarLift(); // 位置定了再判断要不要抬工具栏
 		} catch (err) {
 			(window as any).__sakanaBooted = false;
 			console.warn("[sakana]", err && (err as Error).message);
@@ -963,11 +1167,27 @@ document.addEventListener("password:decrypted", () => {
 		syncToolbarLift();
 	});
 
+	/* 视口变小后，记忆里的位置可能已经出界：拉回来。
+	   只对「被拖过、已经 pin 住」的挂件动手（判据是有没有 inline left），
+	   没拖过的交给 CSS 的 [data-pos]，别去抢。 */
+	let posRaf = 0;
+	window.addEventListener("resize", () => {
+		if (posRaf) return;
+		posRaf = requestAnimationFrame(() => {
+			posRaf = 0;
+			const host = getHost();
+			if (!host || !host.style.left) return;
+			pinHost(parseFloat(host.style.left) || 0, parseFloat(host.style.top) || 0);
+			syncToolbarLift();
+		});
+	});
+
 	/* Swup 切页后：<html> 属性可能被上游脚本改写，且 head-plugin 可能清掉 SDK 的 <style>，
 	   所以这里既重新断言工具栏状态，也兜底把样式挂回去。 */
 	document.addEventListener("swup:page:view", () => {
 		if (!sk.enable) return;
 		applyHostBox();
+		applySavedPos(); // 宿主在 Swup 容器外不会被换，但位置要重新断言一次（<html> 属性可能被上游改写）
 		syncToolbarLift();
 		restoreSdkStyle();
 	});

@@ -1,5 +1,6 @@
 ---
 import BackToTop from "@components/control/BackToTop.astro";
+import ImmersiveReading from "@components/control/ImmersiveReading.astro";
 import Footer from "@components/Footer.astro";
 import Navbar from "@components/Navbar.astro";
 import SideBar from "@components/widget/SideBar.astro";
@@ -8,6 +9,8 @@ import { Icon } from "astro-icon/components";
 import ImageWrapper from "../components/misc/ImageWrapper.astro";
 import TOC from "../components/widget/TOC.astro";
 import { siteConfig } from "../config";
+import I18nKey from "../i18n/i18nKey";
+import { i18n } from "../i18n/translation";
 import {
 	BANNER_HEIGHT,
 	BANNER_HEIGHT_EXTEND,
@@ -51,19 +54,33 @@ const mainPanelTop = siteConfig.banner.enable
 <!-- Navbar -->
 <slot slot="head" name="head"></slot>
 
-<!-- 侧栏折叠状态：必须在本布局的网格渲染之前同步写入 <html data-sidebar>，
-     否则首屏会先按默认布局绘制再跳变。脚本位于 grid 之前，因此是同步执行的。
-     ⚠️ 本脚本在 swup 容器之外，切页**不会重跑**，所以「当前页是否支持折叠」
-     不能用 Astro 编译期注入的常量（它被固化成首屏那一份的值），
-     只能在运行时读 DOM 标记 —— 见 supportsCollapse()。 -->
+<!-- 阅读模式（reading mode）状态机 —— 折叠与沉浸合并成一条三档光谱。
+     档位由 <html data-sidebar="off|expanded|collapsed|immersive"> **单值**驱动：
+       expanded  → 双栏，侧栏展开（最浅）
+       collapsed → 收侧栏，导航 / banner 保留，正文收进 --read-width（**文章页默认档**）
+       immersive → 隐去导航 / banner / 侧栏 / 页脚，正文更窄 + 常驻目录栏（最深）
+       off       → 本页不适用（首页 / 归档 / 关于 …），保持原双栏
+     工具栏那一枚按钮按 order() 循环切换；沉浸档的全部样式与目录栏见 ImmersiveReading.astro。
+
+     🔴 单状态源（2026-09-20 合并）：沉浸原先用 body.immersive-reading 另起一套，与折叠并列，
+        两套 CSS 都要靠 !important 抢特异性，还留下「两个开关同时开着算哪一档」的未定义状态。
+        收进本属性后，档位天然互斥，既不需要比较特异性，也没有组合歧义。
+
+     ⚠️ 本脚本在 swup 容器之外，切页**不会重跑**，所以「当前页支持不支持」不能用 Astro
+        编译期注入的常量（会被固化成首屏那一份的值），只能运行时读 DOM 标记 —— 见 supportsCollapse()。 -->
 <script is:inline>
 (function () {
-    var KEY = 'sidebar-expanded';
+    var KEY = 'reading-mode';                              // sessionStorage：记住用户选的档位
+    var ORDER = ['expanded', 'collapsed', 'immersive'];    // 循环顺序：由浅到深，到底回最浅
+    var DEFAULT_MODE = 'collapsed';                        // 文章页默认档
+    var VALID = { expanded: 1, collapsed: 1, immersive: 1 };
     var root = document.documentElement;
+    var bound = false;
+    var savedScroll = 0;        // 进沉浸前的滚动位置，退出时原样恢复
+    var pendingUrl = null;      // swup 目标 URL（地址栏更新前唯一可靠的来源）
 
     // 判断是不是文章页：一律用「目标 URL」而不是 window.location。
-    // swup 的 content:replace / page:view 触发时地址栏可能还没更新，
-    // 读 location 会拿到上一页的路径。
+    // swup 的 content:replace / page:view 触发时地址栏可能还没更新，读 location 会拿到上一页的路径。
     // 注意这只是首屏的兜底手段，主依据是下面的 DOM 标记。
     function isPostUrl(u) {
         var p;
@@ -73,53 +90,113 @@ const mainPanelTop = siteConfig.banner.enable
     }
 
     function readPref() {
-        try { return sessionStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+        try { var v = sessionStorage.getItem(KEY); return VALID[v] ? v : null; }
+        catch (e) { return null; }
     }
-
     function writePref(v) {
-        try { sessionStorage.setItem(KEY, v ? '1' : '0'); } catch (e) { /* 隐私模式下忽略 */ }
+        try { sessionStorage.setItem(KEY, v); } catch (e) { /* 隐私模式下忽略 */ }
     }
 
-    // 🔴 「本页可不可折叠」的**唯一真值来源**是 DOM 标记，它由本布局渲染在
+    // 🔴 「本页可不可切换档位」的**唯一真值来源**是 DOM 标记，它由本布局渲染在
     //    #content-wrapper（位于 <main id="swup-container"> 内部）上：
     //    swup 的容器是 ["main", "#toc"]，切页只换 main 的**内容** ——
     //    标记跟着新页面出现/消失，而 sidebar 与 #main-grid 本身从不被重建。
     function marked() {
         return !!document.querySelector('[data-sidebar-collapsible]');
     }
-
     function supportsCollapse(u) {
         if (marked()) return true;
-        // main 已经在 DOM 里但没带标记 → 本页不支持折叠（首页 / 归档 / 关于 …）
+        // main 已经在 DOM 里但没带标记 → 本页不支持（首页 / 归档 / 关于 …）
         if (document.getElementById('swup-container')) return false;
         // 首屏：本脚本同步执行于网格之前，<main> 还没解析出来，只能按路径兜底
         return isPostUrl(u);
     }
 
-    // collapsed = 折叠（默认） / expanded = 用户手动展开 / off = 本页不适用
-    function stateFor(u) {
-        if (!supportsCollapse(u)) return 'off';
-        return readPref() ? 'expanded' : 'collapsed';
+    // 沉浸档的配置来自 ImmersiveReading 渲染的 #immersive-root；组件被禁用时它不存在 → 该档不可达
+    function immersiveCfg() {
+        var el = document.getElementById('immersive-root');
+        if (!el) return null;
+        return {
+            tocEnabled: el.dataset.tocEnabled === '1',
+            tocPosition: el.dataset.tocPosition === 'right' ? 'right' : 'left',
+            defaultOn: el.dataset.defaultOn === '1',
+            tTocExpand: el.dataset.tTocExpand || '',
+            tTocCollapse: el.dataset.tTocCollapse || ''
+        };
+    }
+    // 与折叠一致：<1024px 本就是单列堆叠，沉浸档不参与
+    function immersiveAvailable() {
+        return !!immersiveCfg() && window.innerWidth >= 1024;
+    }
+    function order() {
+        return immersiveAvailable() ? ORDER : ['expanded', 'collapsed'];
     }
 
+    function stateFor(u) {
+        if (!supportsCollapse(u)) return 'off';
+        var pref = readPref();
+        // 沉浸是「临时态」：不跨页面保留，回到文章页时给默认档
+        if (pref && pref !== 'immersive') return pref;
+        // 未设偏好时，看配置是否要求文章页默认就进沉浸（immersiveReadingConfig.defaultOn）
+        var cfg = immersiveCfg();
+        if (cfg && cfg.defaultOn && immersiveAvailable()) return 'immersive';
+        return DEFAULT_MODE;
+    }
+
+    function current() {
+        return root.getAttribute('data-sidebar') || 'off';
+    }
+
+    /* ---- 入口按钮：工具栏那一枚（容器外、切页不重建 → 只绑一次）。
+            文案按「下一档会去哪」提示，三个 label 由 BackToTop 渲染时注入。 ---- */
     function syncButton() {
-        var btn = document.getElementById('sidebar-toggle');
+        var btn = document.getElementById('immersive-btn');
         if (!btn) return;
-        var expanded = root.getAttribute('data-sidebar') === 'expanded';
-        var label = expanded ? '收起侧栏' : '展开侧栏';
-        btn.setAttribute('aria-label', label);
+        var cur = current();
+        btn.style.display = VALID[cur] ? '' : 'none';
+        btn.classList.toggle('is-open', cur === 'immersive');
+        var label = btn.getAttribute('data-label-collapsed') || '';
+        if (cur === 'expanded') label = btn.getAttribute('data-label-expanded') || label;
+        else if (cur === 'immersive') label = btn.getAttribute('data-label-immersive') || label;
         btn.setAttribute('title', label);
-        btn.setAttribute('aria-expanded', String(expanded));
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('aria-pressed', cur === 'immersive' ? 'true' : 'false');
+    }
+
+    function syncTocBtn() {
+        var cfg = immersiveCfg();
+        var tb = document.getElementById('immersive-toc-btn');
+        if (!cfg || !tb) return;
+        var open = root.classList.contains('immersive-toc-open');
+        var label = open ? cfg.tTocCollapse : cfg.tTocExpand;
+        tb.setAttribute('title', label);
+        tb.setAttribute('aria-label', label);
     }
 
     // 只在值真的变化时才写属性（重复写入会触发无谓的样式重算与过渡）。
     // animate=false 时先挂 data-sidebar-noanim 关掉过渡：swup 切页是「整页换布局」，
     // 栅格列宽与内边距都是容器宽度的函数，若在切换过程中逐帧插值，正文会来回重排 —— 既闪又卡。
-    function setState(s, animate) {
-        if (root.getAttribute('data-sidebar') === s) { syncButton(); return; }
+    function setMode(next, animate) {
+        var prev = current();
+        if (prev === next) { syncButton(); syncTocBtn(); return; }
+
+        if (VALID[next] && next !== 'immersive') writePref(next);
+
         if (!animate) root.setAttribute('data-sidebar-noanim', '');
-        root.setAttribute('data-sidebar', s);
+        root.setAttribute('data-sidebar', next);
+
+        // 目录栏子状态：只在沉浸档有意义。进沉浸默认展开（进来就能看到结构）；离开时清掉。
+        if (next === 'immersive') {
+            var cfg = immersiveCfg();
+            root.classList.toggle('immersive-toc-open', !!(cfg && cfg.tocEnabled));
+            root.classList.toggle('immersive-toc-right', !!(cfg && cfg.tocPosition === 'right'));
+        } else {
+            root.classList.remove('immersive-toc-open', 'immersive-toc-right');
+        }
+
         syncButton();
+        syncTocBtn();
+
         if (!animate) {
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
@@ -127,31 +204,53 @@ const mainPanelTop = siteConfig.banner.enable
                 });
             });
         }
+
+        document.dispatchEvent(new CustomEvent('readingModeChange', { detail: { mode: next, prev: prev } }));
+        // 兼容 ImmersiveReading 早期对外派发的事件名
+        document.dispatchEvent(new CustomEvent('immersiveReadingChange', { detail: { on: next === 'immersive' } }));
     }
 
-    var pendingUrl = null;      // swup 目标 URL（地址栏更新前唯一可靠的来源）
+    /* 循环切换：展开 → 折叠 → 沉浸 → 展开。
+       滚动处理放在这里（而不是 setMode）：只有手动换档才需要动滚动，
+       swup 切页时动它会把人甩回顶部。 */
+    function next() {
+        var list = order();
+        var prev = current();
+        var i = list.indexOf(prev);
+        if (i < 0) return;                       // off 态（非文章页）不响应
+        var to = list[(i + 1) % list.length];
 
-    var bound = false;
+        if (to === 'immersive') savedScroll = window.scrollY || window.pageYOffset || 0;
+        setMode(to, true);
+        // 进沉浸归零；出沉浸回到进入前的位置（不是顶部）——直接跳，别让 scroll-plugin 做惯性动画
+        if (to === 'immersive') window.scrollTo(0, 0);
+        else if (prev === 'immersive') window.scrollTo(0, savedScroll || 0);
+    }
+
+    function toggleToc() {
+        if (current() !== 'immersive') return;
+        root.classList.toggle('immersive-toc-open');
+        syncTocBtn();
+    }
+
+    // 切页 / 视口变化后重新对齐。切页时若本来就在沉浸档，保持沉浸（目录会跟着新页面重建），
+    // 但离开文章页或视口收窄到移动端范围就强制回落。
+    function refresh(animate) {
+        bind();
+        var target = stateFor(pendingUrl || location.href);
+        if (current() === 'immersive' && target !== 'off' && immersiveAvailable()) target = 'immersive';
+        setMode(target, animate === true);
+    }
+
     function bind() {
-        var btn = document.getElementById('sidebar-toggle');
+        var btn = document.getElementById('immersive-btn');
         if (!btn || bound) return;
         bound = true;
         btn.addEventListener('click', function () {
-            if (!supportsCollapse(location.href)) return;
-            var expanded = readPref();
-            writePref(!expanded);
-            syncButton();
-            setState(expanded ? 'collapsed' : 'expanded', true);   // 手动切换：保留过渡动画
+            if (!VALID[current()]) return;
+            next();
         });
     }
-
-    function refresh(animate) {
-        bind();
-        setState(stateFor(pendingUrl || location.href), animate === true);
-    }
-
-    // 首屏：本脚本位于 grid 之前、同步执行，此时写入不会有闪烁
-    setState(stateFor(location.href), false);
 
     // ---- swup 生命周期：优先用 swup 原生 hooks（时机最早，且能拿到目标 URL）----
     function setupSwup() {
@@ -167,6 +266,23 @@ const mainPanelTop = siteConfig.banner.enable
         swup.hooks.on('visit:end', function () { refresh(false); pendingUrl = null; });
         return true;
     }
+
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && current() === 'immersive') next();
+    });
+    window.addEventListener('resize', function () {
+        // 宽 → 窄：沉浸档不再可用，回落到默认档
+        if (current() === 'immersive' && !immersiveAvailable()) setMode(DEFAULT_MODE, false);
+        else { syncButton(); syncTocBtn(); }
+    });
+
+    // 供 ImmersiveReading（目录栏浮钮 / 标题条按钮）调用
+    window.toggleImmersiveTOC = toggleToc;
+    window.toggleReadingMode = next;
+    window.setReadingMode = setMode;
+
+    // 首屏：本脚本位于 grid 之前、同步执行，此时写入不会有闪烁
+    setMode(stateFor(location.href), false);
 
     if (!setupSwup()) {
         document.addEventListener('swup:enable', setupSwup);
@@ -220,7 +336,7 @@ const mainPanelTop = siteConfig.banner.enable
 </script>
 
 <!-- Main content -->
-<div class="absolute w-full z-30 pointer-events-none" style={`top: ${mainPanelTop}`}>
+<div id="main-panel" class="absolute w-full z-30 pointer-events-none" style={`top: ${mainPanelTop}`}>
     <!-- The pointer-events-none here prevent blocking the click event of the TOC -->
     <div class="relative max-w-[var(--page-width)] mx-auto pointer-events-auto">
         <div id="main-grid" class="transition duration-700 w-full left-0 right-0 grid grid-cols-[17.5rem_auto] grid-rows-[auto_1fr_auto] lg:grid-rows-[auto]
@@ -266,21 +382,25 @@ const mainPanelTop = siteConfig.banner.enable
 <!-- 悬浮工具栏放在 main-grid 之外，避免祖先 transform 导致 fixed 定位失效 -->
 <BackToTop></BackToTop>
 
-<!-- 侧栏折叠开关：贴在正文左边缘外侧的空白区（lg 以上可见，仅文章页）。
-     ⚠️ 必须**无条件渲染**，不能写成 `{sidebarCollapsible && (...)}`：swup 只替换 `main` 与 `#toc`，
-     这个按钮在容器之外、属于「首屏那一份」HTML。若按页面条件渲染，从首页进站再点进文章时
-     按钮根本不存在（只能整页刷新才出现）——显隐一律交给 `data-sidebar` 的 CSS 控制。 -->
-<button id="sidebar-toggle" type="button" aria-label="展开侧栏" title="展开侧栏" aria-expanded="false" aria-controls="sidebar">
-    <Icon name="material-symbols:chevron-right-rounded" class="sidebar-toggle-icon"></Icon>
-</button>
+<!-- 沉浸阅读：状态机 + 浮钮 + 全部沉浸态样式。同样必须落在 Swup 容器之外。 -->
+<ImmersiveReading></ImmersiveReading>
 
 <!-- The things that should be under the banner, only the TOC for now -->
-<div class="absolute w-full z-0 hidden 2xl:block">
+<div id="toc-outer" class="absolute w-full z-0 hidden 2xl:block">
     <div class="relative max-w-[var(--page-width)] mx-auto">
         <!-- TOC component -->
         {siteConfig.toc.enable && <div id="toc-wrapper" class:list={["hidden lg:block transition absolute top-0 -right-[var(--toc-width)] w-[var(--toc-width)] items-center",
             {"toc-hide": siteConfig.banner.enable}]}
         >
+            {/* 沉浸阅读：目录栏标题条。默认 display:none，仅沉浸态转 flex（样式在 ImmersiveReading.astro）。
+                它位于 #toc-inner-wrapper 之外、#toc-wrapper 之内 —— 不属于 Swup 的替换目标（["main","#toc"]），
+                切页不会重建，所以事件只绑一次即可。 */}
+            <div id="immersive-toc-header">
+                <span class="immersive-toc-title">{i18n(I18nKey.tocTitle)}</span>
+                <button id="immersive-toc-close" type="button" class="immersive-toc-close" aria-label={i18n(I18nKey.tocCollapse)} title={i18n(I18nKey.tocCollapse)}>
+                    <Icon name="material-symbols:chevron-left-rounded" class="immersive-toc-close-icon"></Icon>
+                </button>
+            </div>
             <div id="toc-inner-wrapper" class="fixed top-14 w-[var(--toc-width)] h-[calc(100vh_-_20rem)] overflow-y-scroll overflow-x-hidden hide-scrollbar">
                 <div id="toc" class="w-full h-full transition-swup-fade ">
                     <div class="h-8 w-full"></div>
@@ -297,13 +417,14 @@ const mainPanelTop = siteConfig.banner.enable
 </Layout>
 
 <style is:global>
-/* ================= 文章页侧栏折叠 =================
-   状态统一由 <html data-sidebar="collapsed|expanded|off"> 驱动，
+/* ================= 阅读模式 · 折叠与展开两档 =================
+   状态统一由 <html data-sidebar="off|expanded|collapsed|immersive"> 单值驱动，
    该属性由上面的内联脚本在首屏绘制前同步写入（见脚本注释）。
-   - collapsed：第一列收成 0，卡片吃满 --page-width，正文收进阅读列
-   - expanded ：用户手动展开
-   - off      ：本页不适用（首页 / 归档 / 关于 …），保持原双栏布局
-   移动端（<1024px）本就是单列堆叠，不参与折叠。 */
+   - collapsed  ：第一列收成 0，卡片吃满 --page-width，正文收进 --read-width（文章页默认）
+   - expanded   ：用户手动展开
+   - immersive  ：三档中最深的一档 —— 全部样式在 ImmersiveReading.astro（本文件不管）
+   - off        ：本页不适用（首页 / 归档 / 关于 …），保持原双栏布局
+   移动端（<1024px）本就是单列堆叠，不参与。 */
 
 /* 阅读列宽度：折叠态下正文的量宽。
    50rem = 800px，**恰好等于展开态的量宽**（main 列 872 − 卡片左右内边距各 36px），
@@ -311,6 +432,10 @@ const mainPanelTop = siteConfig.banner.enable
    想更窄就改这一个数字：46rem ≈ 46 汉字/行，42rem ≈ 42 汉字/行。 */
 :root {
     --read-width: 50rem;
+    /* 折叠态正文两侧的版心竖线：--guide-gap = 线离字面的距离，--guide-fade = 两端渐隐长度。
+       两个数字就是全部的调节旋钮（颜色在下面那条规则里，跟 --primary 联动）。 */
+    --guide-gap: 2.875rem;
+    --guide-fade: 4rem;
 }
 
 @media (min-width: 1024px) {
@@ -347,12 +472,6 @@ const mainPanelTop = siteConfig.banner.enable
         transition: opacity 0.3s ease, visibility 0s linear 0.3s;
     }
 
-    /* 仅当本页支持折叠（且脚本已写入状态）时才显示开关，避免 JS 未执行时出现死按钮 */
-    html[data-sidebar="collapsed"] #sidebar-toggle,
-    html[data-sidebar="expanded"] #sidebar-toggle {
-        display: flex;
-    }
-
     /* ============ 折叠态：把正文收回阅读列并居中 ============
        注意这里收窄的是**卡片内部的文字列**，卡片外缘仍是 1168px，
        所以「卡片与顶栏等宽」这条对齐线不受影响。
@@ -367,45 +486,46 @@ const mainPanelTop = siteConfig.banner.enable
        因为两端做插值而在动画中点鼓到 874px（文字来回重排）。不写过渡时它自己就是恒定的，
        而且这样也不会覆盖 .card-base 的 Tailwind transition（主题切换底色照常淡入）。 */
     html[data-sidebar="collapsed"] #post-container {
-        padding-left: max(1.5rem, calc((100% - var(--read-width)) / 2));
-        padding-right: max(1.5rem, calc((100% - var(--read-width)) / 2));
+        /* 抽成变量：正文两侧的版心竖线要跟这条留白对齐，共用同一个表达式才不会错位 */
+        --reading-gutter: max(1.5rem, calc((100% - var(--read-width)) / 2));
+        padding-left: var(--reading-gutter);
+        padding-right: var(--reading-gutter);
+    }
+
+    /* ============ 折叠态：正文两侧的版心竖线 ============
+       折叠时卡片外缘仍是 1168px（保住与顶栏的对齐线），正文缩在中间的 800px 里，
+       于是左右各 184px 的纯白就成了空档，文章看着"没东西框住"。
+       这里在留白里、离字面 --guide-gap 处各补一条 1px 竖线，上下各渐隐 --guide-fade。
+
+       三个刻意的取舍：
+       ① 线只画在留白里，不进正文列 —— 不碰任何内容的层叠，也不会被正文里的
+          代码块 / 引用块压住，更不用给内容加 z-index。
+       ② 位置跟着 --reading-gutter 走，改 --read-width 时留白与竖线一起动。
+       ③ 卡片自带 overflow:hidden，线用 top/bottom:0 顶格即可，两端渐隐后自然收干净。
+       颜色用 20% 的主题色：比 --line-divider（黑/白 8%）略实一点，浅色暗色都看得见，
+       且跟着主题色走 —— 想更淡改 transparent 的百分比就行。 */
+    html[data-sidebar="collapsed"] #post-container::before,
+    html[data-sidebar="collapsed"] #post-container::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        pointer-events: none;
+        background: linear-gradient(
+            to bottom,
+            transparent 0,
+            color-mix(in oklab, var(--primary), transparent 80%) var(--guide-fade),
+            color-mix(in oklab, var(--primary), transparent 80%) calc(100% - var(--guide-fade)),
+            transparent 100%
+        );
+    }
+    html[data-sidebar="collapsed"] #post-container::before {
+        left: calc(var(--reading-gutter) - var(--guide-gap));
+    }
+    html[data-sidebar="collapsed"] #post-container::after {
+        right: calc(var(--reading-gutter) - var(--guide-gap));
     }
 }
 
-#sidebar-toggle {
-    display: none;
-    position: fixed;
-    /* 贴住正文左边缘之外的空白区；视口不足 1200px（--page-width）时退到屏幕最左 */
-    left: max(0.5rem, calc((100vw - var(--page-width)) / 2 - 3.5rem));
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 45;
-    align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 3.25rem;
-    border-radius: 0.75rem;
-    color: var(--primary);
-    background: var(--card-bg);
-    border: 1px solid var(--line-divider);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-    opacity: 0.72;
-    cursor: pointer;
-    transition: opacity 0.2s ease, background 0.2s ease, transform 0.25s ease;
-}
-#sidebar-toggle:hover {
-    opacity: 1;
-    background: var(--btn-plain-bg-hover);
-}
-#sidebar-toggle:active {
-    transform: translateY(-50%) scale(0.94);
-}
-.sidebar-toggle-icon {
-    font-size: 1.5rem;
-    transition: transform 0.3s ease;
-}
-/* 展开状态下箭头转向左侧，提示「点我收起」 */
-html[data-sidebar="expanded"] .sidebar-toggle-icon {
-    transform: rotate(180deg);
-}
 </style>

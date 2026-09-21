@@ -50,4 +50,12 @@ export const en: Translation = {
 	[Key.notFoundTitle]: "Page not found",
 	[Key.notFoundDesc]: "This link may be broken, or the address may be mistyped. Try searching, or head back home.",
 	[Key.backToHome]: "Back to home",
+
+	[Key.immersiveReading]: "Immersive reading",
+	[Key.exitImmersiveReading]: "Exit immersive reading",
+	[Key.tocTitle]: "On this page",
+	[Key.tocExpand]: "Expand table of contents",
+	[Key.tocCollapse]: "Collapse table of contents",
+	[Key.collapseSidebar]: "Collapse sidebar",
+	[Key.sakanaMove]: "Drag to move · double-click to reset",
 };
